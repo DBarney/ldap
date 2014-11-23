@@ -82,11 +82,85 @@ var BeheraPasswordPolicyErrorMap = map[int8]string{
 	BeheraPasswordInHistory:           "New password is in list of old passwords",
 }
 
+var LDAPResultCodeMap = map[LDAPResultCode]string{
+	LDAPResultSuccess:                      "Success",
+	LDAPResultOperationsError:              "Operations Error",
+	LDAPResultProtocolError:                "Protocol Error",
+	LDAPResultTimeLimitExceeded:            "Time Limit Exceeded",
+	LDAPResultSizeLimitExceeded:            "Size Limit Exceeded",
+	LDAPResultCompareFalse:                 "Compare False",
+	LDAPResultCompareTrue:                  "Compare True",
+	LDAPResultAuthMethodNotSupported:       "Auth Method Not Supported",
+	LDAPResultStrongAuthRequired:           "Strong Auth Required",
+	LDAPResultReferral:                     "Referral",
+	LDAPResultAdminLimitExceeded:           "Admin Limit Exceeded",
+	LDAPResultUnavailableCriticalExtension: "Unavailable Critical Extension",
+	LDAPResultConfidentialityRequired:      "Confidentiality Required",
+	LDAPResultSaslBindInProgress:           "Sasl Bind In Progress",
+	LDAPResultNoSuchAttribute:              "No Such Attribute",
+	LDAPResultUndefinedAttributeType:       "Undefined Attribute Type",
+	LDAPResultInappropriateMatching:        "Inappropriate Matching",
+	LDAPResultConstraintViolation:          "Constraint Violation",
+	LDAPResultAttributeOrValueExists:       "Attribute Or Value Exists",
+	LDAPResultInvalidAttributeSyntax:       "Invalid Attribute Syntax",
+	LDAPResultNoSuchObject:                 "No Such Object",
+	LDAPResultAliasProblem:                 "Alias Problem",
+	LDAPResultInvalidDNSyntax:              "Invalid DN Syntax",
+	LDAPResultAliasDereferencingProblem:    "Alias Dereferencing Problem",
+	LDAPResultInappropriateAuthentication:  "Inappropriate Authentication",
+	LDAPResultInvalidCredentials:           "Invalid Credentials",
+	LDAPResultInsufficientAccessRights:     "Insufficient Access Rights",
+	LDAPResultBusy:                         "Busy",
+	LDAPResultUnavailable:                  "Unavailable",
+	LDAPResultUnwillingToPerform:           "Unwilling To Perform",
+	LDAPResultLoopDetect:                   "Loop Detect",
+	LDAPResultNamingViolation:              "Naming Violation",
+	LDAPResultObjectClassViolation:         "Object Class Violation",
+	LDAPResultNotAllowedOnNonLeaf:          "Not Allowed On Non Leaf",
+	LDAPResultNotAllowedOnRDN:              "Not Allowed On RDN",
+	LDAPResultEntryAlreadyExists:           "Entry Already Exists",
+	LDAPResultObjectClassModsProhibited:    "Object Class Mods Prohibited",
+	LDAPResultAffectsMultipleDSAs:          "Affects Multiple DSAs",
+	LDAPResultOther:                        "Other",
+}
+
 // Other LDAP constants
 const (
 	LDAPBindAuthSimple = 0
 	LDAPBindAuthSASL   = 3
 )
+
+type LDAPResultCode uint8
+
+type Attribute struct {
+	attrType string
+	attrVals []string
+}
+type AddRequest struct {
+	dn         string
+	attributes []Attribute
+}
+type DeleteRequest struct {
+	dn string
+}
+type ModifyDNRequest struct {
+	dn           string
+	newrdn       string
+	deleteoldrdn bool
+	newSuperior  string
+}
+type AttributeValueAssertion struct {
+	attributeDesc  string
+	assertionValue string
+}
+type CompareRequest struct {
+	dn  string
+	ava []AttributeValueAssertion
+}
+type ExtendedRequest struct {
+	requestName  string
+	requestValue string
+}
 
 // Adds descriptions to an LDAP Response packet for debugging
 func addLDAPDescriptions(packet *ber.Packet) (err error) {
@@ -319,4 +393,27 @@ func EscapeFilter(filter string) string {
 		}
 	}
 	return string(buf)
+}
+
+type Error struct {
+	Err        error
+	ResultCode LDAPResultCode
+}
+
+func (e *Error) Error() string {
+	return fmt.Sprintf("LDAP Result Code %d %q: %s", e.ResultCode, LDAPResultCodeMap[e.ResultCode], e.Err.Error())
+}
+
+func NewError(resultCode LDAPResultCode, err error) error {
+	return &Error{ResultCode: resultCode, Err: err}
+}
+
+func getLDAPResultCode(packet *ber.Packet) (code LDAPResultCode, description string) {
+	if len(packet.Children) >= 2 {
+		response := packet.Children[1]
+		if response.ClassType == ber.ClassApplication && response.TagType == ber.TypeConstructed && len(response.Children) == 3 {
+			return LDAPResultCode(response.Children[0].Value.(uint64)), response.Children[2].Value.(string)
+		}
+	}
+	return ErrorNetwork, "Invalid packet format"
 }
