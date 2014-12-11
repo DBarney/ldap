@@ -37,8 +37,7 @@ func HandleSearchRequest(req *ber.Packet, controls *[]Control, messageID uint64,
 
 	if server.EnforceLDAP {
 		if searchReq.DerefAliases != NeverDerefAliases { // [-a {never|always|search|find}
-			// Server DerefAliases not supported: RFC4511 4.5.1.3
-			return NewError(LDAPResultOperationsError, errors.New("Server DerefAliases not supported"))
+			// TODO: Server DerefAliases not supported: RFC4511 4.5.1.3
 		}
 		if searchReq.TimeLimit > 0 {
 			// TODO: Server TimeLimit not implemented
