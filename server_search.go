@@ -44,7 +44,8 @@ func HandleSearchRequest(req *ber.Packet, controls *[]Control, messageID uint64,
 		}
 	}
 
-	for i, entry := range searchResp.Entries {
+	i := 0
+	for _, entry := range searchResp.Entries {
 		if server.EnforceLDAP {
 			// filter
 			keep, resultCode := ServerApplyFilter(filterPacket, entry)
@@ -72,11 +73,6 @@ func HandleSearchRequest(req *ber.Packet, controls *[]Control, messageID uint64,
 				}
 			}
 
-			// size limit
-			if searchReq.SizeLimit > 0 && i >= searchReq.SizeLimit {
-				break
-			}
-
 			// attributes
 			if len(searchReq.Attributes) > 1 || (len(searchReq.Attributes) == 1 && len(searchReq.Attributes[0]) > 0) {
 				entry, err = filterAttributes(entry, searchReq.Attributes)
@@ -84,6 +80,12 @@ func HandleSearchRequest(req *ber.Packet, controls *[]Control, messageID uint64,
 					return NewError(LDAPResultOperationsError, err)
 				}
 			}
+
+			// size limit
+			if searchReq.SizeLimit > 0 && i >= searchReq.SizeLimit {
+				break
+			}
+			i++
 		}
 
 		// respond

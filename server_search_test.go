@@ -114,6 +114,26 @@ func TestSearchSizelimit(t *testing.T) {
 		if !strings.Contains(string(out), "numEntries: 3") {
 			t.Errorf("ldapsearch sizelimit 0 failed - wrong number of entries: %v", string(out))
 		}
+
+		cmd = exec.Command("ldapsearch", "-H", ldapURL, "-x",
+			"-b", serverBaseDN, "-D", "cn=testy,"+serverBaseDN, "-w", "iLike2test", "-z", "1", "(uid=trent)")
+		out, _ = cmd.CombinedOutput()
+		if !strings.Contains(string(out), "result: 0 Success") {
+			t.Errorf("ldapsearch failed: %v", string(out))
+		}
+		if !strings.Contains(string(out), "numEntries: 1") {
+			t.Errorf("ldapsearch sizelimit 1 with filter failed - wrong number of entries: %v", string(out))
+		}
+
+		cmd = exec.Command("ldapsearch", "-H", ldapURL, "-x",
+			"-b", serverBaseDN, "-D", "cn=testy,"+serverBaseDN, "-w", "iLike2test", "-z", "0", "(uid=trent)")
+		out, _ = cmd.CombinedOutput()
+		if !strings.Contains(string(out), "result: 0 Success") {
+			t.Errorf("ldapsearch failed: %v", string(out))
+		}
+		if !strings.Contains(string(out), "numEntries: 1") {
+			t.Errorf("ldapsearch sizelimit 0 with filter failed - wrong number of entries: %v", string(out))
+		}
 		done <- true
 	}()
 
