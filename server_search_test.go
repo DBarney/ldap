@@ -66,13 +66,23 @@ func TestSearchSizelimit(t *testing.T) {
 
 	go func() {
 		cmd := exec.Command("ldapsearch", "-H", ldapURL, "-x",
-			"-b", serverBaseDN, "-D", "cn=testy,"+serverBaseDN, "-w", "iLike2test", "-z", "9") // effectively no limit for this test
+			"-b", serverBaseDN, "-D", "cn=testy,"+serverBaseDN, "-w", "iLike2test") // no limit for this test
 		out, _ := cmd.CombinedOutput()
 		if !strings.Contains(string(out), "result: 0 Success") {
 			t.Errorf("ldapsearch failed: %v", string(out))
 		}
 		if !strings.Contains(string(out), "numEntries: 3") {
-			t.Errorf("ldapsearch sizelimit failed - not enough entries: %v", string(out))
+			t.Errorf("ldapsearch sizelimit unlimited failed - not enough entries: %v", string(out))
+		}
+
+		cmd = exec.Command("ldapsearch", "-H", ldapURL, "-x",
+			"-b", serverBaseDN, "-D", "cn=testy,"+serverBaseDN, "-w", "iLike2test", "-z", "9") // effectively no limit for this test
+		out, _ = cmd.CombinedOutput()
+		if !strings.Contains(string(out), "result: 0 Success") {
+			t.Errorf("ldapsearch failed: %v", string(out))
+		}
+		if !strings.Contains(string(out), "numEntries: 3") {
+			t.Errorf("ldapsearch sizelimit 9 failed - not enough entries: %v", string(out))
 		}
 
 		cmd = exec.Command("ldapsearch", "-H", ldapURL, "-x",
@@ -82,7 +92,27 @@ func TestSearchSizelimit(t *testing.T) {
 			t.Errorf("ldapsearch failed: %v", string(out))
 		}
 		if !strings.Contains(string(out), "numEntries: 2") {
-			t.Errorf("ldapsearch sizelimit failed - too many entries: %v", string(out))
+			t.Errorf("ldapsearch sizelimit 2 failed - too many entries: %v", string(out))
+		}
+
+		cmd = exec.Command("ldapsearch", "-H", ldapURL, "-x",
+			"-b", serverBaseDN, "-D", "cn=testy,"+serverBaseDN, "-w", "iLike2test", "-z", "1")
+		out, _ = cmd.CombinedOutput()
+		if !strings.Contains(string(out), "result: 0 Success") {
+			t.Errorf("ldapsearch failed: %v", string(out))
+		}
+		if !strings.Contains(string(out), "numEntries: 1") {
+			t.Errorf("ldapsearch sizelimit 1 failed - too many entries: %v", string(out))
+		}
+
+		cmd = exec.Command("ldapsearch", "-H", ldapURL, "-x",
+			"-b", serverBaseDN, "-D", "cn=testy,"+serverBaseDN, "-w", "iLike2test", "-z", "0")
+		out, _ = cmd.CombinedOutput()
+		if !strings.Contains(string(out), "result: 0 Success") {
+			t.Errorf("ldapsearch failed: %v", string(out))
+		}
+		if !strings.Contains(string(out), "numEntries: 3") {
+			t.Errorf("ldapsearch sizelimit 0 failed - wrong number of entries: %v", string(out))
 		}
 		done <- true
 	}()
