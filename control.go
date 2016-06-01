@@ -3,6 +3,7 @@ package ldap
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"gopkg.in/asn1-ber.v1"
 )
@@ -56,7 +57,9 @@ func (c *ControlString) Encode() *ber.Packet {
 	if c.Criticality {
 		packet.AppendChild(ber.NewBoolean(ber.ClassUniversal, ber.TypePrimitive, ber.TagBoolean, c.Criticality, "Criticality"))
 	}
-	packet.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, string(c.ControlValue), "Control Value"))
+	if strings.TrimSpace(c.ControlValue) != "" {
+		packet.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, c.ControlValue, "Control Value"))
+	}
 	return packet
 }
 
