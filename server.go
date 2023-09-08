@@ -11,6 +11,53 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 )
 
+type coder interface {
+	fromPacket(*ber.Packet) error
+	toPacket() *ber.Packet
+	id() ber.Tag
+}
+
+type message struct {
+	id       int64
+	controls []Control
+	request  *ber.Packet
+}
+
+func (b *message) fromPacket(p *ber.Packet) error {
+	// sanity check this packet
+	if len(p.Children) < 2 {
+		return LDAPResultProtocolError
+	}
+
+	// check the message ID
+	messageID64, ok := p.Children[0].Value.(int64)
+	if !ok {
+		return LDAPResultProtocolError
+	}
+
+	// check the ClassType
+	req := packet.Children[1]
+	if req.ClassType != ber.ClassApplication {
+		return LDAPResultProtocolError
+	}
+	// handle controls if present
+	controls := []Control{}
+	if len(packet.Children) > 2 {
+		for _, child := range packet.Children[2].Children {
+			controls = append(controls, DecodeControl(child))
+		}
+	}
+
+	m.id = uint64(messageID64)
+	m.controls = controls
+	m.request = req
+	return nil
+}
+
+func (m *message) toPacket() *ber.Packet {
+	return newSequence("LDAP Response", newInteger(m.id, "MessageID"), m.request)
+}
+
 type Binder interface {
 	Bind(bindDN, bindSimplePw string, conn net.Conn) (LDAPResultCode, error)
 }
@@ -235,29 +282,11 @@ func (server *Server) handleConnection(conn net.Conn) {
 			break
 		}
 
-		// sanity check this packet
-		if len(packet.Children) < 2 {
-			return
-		}
-
-		// check the message ID
-		messageID64, ok := packet.Children[0].Value.(int64)
-		if !ok {
-			return
-		}
-		messageID := uint64(messageID64)
-
-		// check the ClassType
-		req := packet.Children[1]
-		if req.ClassType != ber.ClassApplication {
-			return
-		}
-		// handle controls if present
-		controls := []Control{}
-		if len(packet.Children) > 2 {
-			for _, child := range packet.Children[2].Children {
-				controls = append(controls, DecodeControl(child))
-			}
+		msg := &message{}
+		err = msg.fromPacket(packet)
+		if err != nil {
+			log.Printf("handleConnection ber.ReadPacket ERROR: %s", err.Error())
+			break
 		}
 
 		//log.Printf("DEBUG: handling operation: %s [%d]", ApplicationMap[req.Tag], req.Tag)
@@ -265,17 +294,16 @@ func (server *Server) handleConnection(conn net.Conn) {
 
 		// dispatch the LDAP operation
 		var responsePacket *ber.Packet
-		switch req.Tag { // ldap op code
+		switch msg.request.Tag { // ldap op code
 		default:
 			log.Printf("Unhandled operation: %s [%d]", ApplicationMap[req.Tag], req.Tag)
 			responsePacket = encodeLDAPResponse(messageID, ApplicationAddResponse, LDAPResultOperationsError, "Unsupported operation")
 
 		case ApplicationBindRequest:
 			server.Stats.countBinds(1)
-			ldapResultCode := HandleBindRequest(req, server.BindFns, conn)
+			ldapResultCode := HandleBindRequest(msg.request, server.BindFns, conn)
 			if ldapResultCode == LDAPResultSuccess {
-				// no check needed, as HandleBindRequest does the check already
-				boundDN = req.Children[1].Value.(string)
+				boundDN = bind.dn
 			}
 			responsePacket = encodeBindResponse(messageID, ldapResultCode)
 		case ApplicationSearchRequest:

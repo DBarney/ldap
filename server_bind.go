@@ -7,20 +7,23 @@ import (
 	ber "github.com/go-asn1-ber/asn1-ber"
 )
 
-func HandleBindRequest(req *ber.Packet, fns map[string]Binder, conn net.Conn) (resultCode LDAPResultCode) {
-	defer func() {
-		if r := recover(); r != nil {
-			resultCode = LDAPResultOperationsError
-		}
-	}()
+type bindReq struct {
+	Type     ber.Tag
+	User     string
+	Password string
+}
 
+func (b *bindReq) id() ber.Tag {
+	return ApplicationBindResponse
+}
+
+func (b *bindReq) fromPacket(p *ber.Packet) error {
 	// we only support ldapv3
 	ldapVersion, ok := req.Children[0].Value.(int64)
 	if !ok {
 		return LDAPResultProtocolError
 	}
 	if ldapVersion != 3 {
-		log.Printf("Unsupported LDAP version: %d", ldapVersion)
 		return LDAPResultInappropriateAuthentication
 	}
 
@@ -29,7 +32,37 @@ func HandleBindRequest(req *ber.Packet, fns map[string]Binder, conn net.Conn) (r
 	if !ok {
 		return LDAPResultProtocolError
 	}
+	b.User = bindDN
 	bindAuth := req.Children[2]
+	switch bindAuth.Tag {
+	case LDAPBindAuthSimple:
+		if len(req.Children) != 3 {
+			return LDAPResultInappropriateAuthentication
+		}
+		b.Password = bindAuth.Data.String()
+	default:
+		return LDAPResultInappropriateAuthentication
+	}
+}
+
+func (b *bindReq) toPacket() *ber.Packet {
+	switch m.Type {
+	case LDAPAuthSimple:
+		return newApplication(ApplicationBindRequest, "Bind Request",
+			newInteger(3, "Version"),
+			newString(b.user, "User Name"),
+			newContextString(0, b.password, "Password"))
+
+	}
+}
+
+func HandleBindRequest(req *ber.Packet, fns map[string]Binder, conn net.Conn) (resultCode LDAPResultCode) {
+	defer func() {
+		if r := recover(); r != nil {
+			resultCode = LDAPResultOperationsError
+		}
+	}()
+
 	switch bindAuth.Tag {
 	default:
 		log.Print("Unknown LDAP authentication method")
@@ -58,16 +91,11 @@ func HandleBindRequest(req *ber.Packet, fns map[string]Binder, conn net.Conn) (r
 }
 
 func encodeBindResponse(messageID uint64, ldapResultCode LDAPResultCode) *ber.Packet {
-	responsePacket := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Response")
-	responsePacket.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "Message ID"))
-
-	bindReponse := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationBindResponse, nil, "Bind Response")
-	bindReponse.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(ldapResultCode), "resultCode: "))
-	bindReponse.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "matchedDN: "))
-	bindReponse.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "errorMessage: "))
-
-	responsePacket.AppendChild(bindReponse)
-
-	// ber.PrintPacket(responsePacket)
-	return responsePacket
+	return newLDAPResponse(messageID,
+		newApplication(ApplicationBindResponse, "Bind Response",
+			newEnum(uint64(ldapResultCode), "resultCode: "),
+			newString("", "matchedDN: "),
+			newString("", "errorMessage: "),
+		),
+	)
 }

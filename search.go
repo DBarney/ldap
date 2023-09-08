@@ -173,25 +173,28 @@ type SearchRequest struct {
 }
 
 func (s *SearchRequest) encode() (*ber.Packet, error) {
-	request := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationSearchRequest, nil, "Search Request")
-	request.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, s.BaseDN, "Base DN"))
-	request.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(s.Scope), "Scope"))
-	request.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(s.DerefAliases), "Deref Aliases"))
-	request.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, uint64(s.SizeLimit), "Size Limit"))
-	request.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, uint64(s.TimeLimit), "Time Limit"))
-	request.AppendChild(ber.NewBoolean(ber.ClassUniversal, ber.TypePrimitive, ber.TagBoolean, s.TypesOnly, "Types Only"))
 	// compile and encode filter
 	filterPacket, err := CompileFilter(s.Filter)
 	if err != nil {
 		return nil, err
 	}
-	request.AppendChild(filterPacket)
+
 	// encode attributes
-	attributesPacket := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Attributes")
+	attributesPacket := newSequence("Attributes")
 	for _, attribute := range s.Attributes {
-		attributesPacket.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, attribute, "Attribute"))
+		attributesPacket.AppendChild(newString(attribute, "Attribute"))
 	}
-	request.AppendChild(attributesPacket)
+
+	request := newApplication(ApplicationSearchRequest, "Search Request",
+		newString(s.BaseDN, "Base DN"),
+		newEnum(s.Scope, "Scope"),
+		newEnum(s.DerefAliases, "deref Aliases"),
+		newInteger(s.SizeLimit, "Size Limit"),
+		newInteger(s.TimeLimit, "Time Limit"),
+		newBool(s.TypesOnly, "Types Only"),
+		filterPacket,
+		attributesPacket)
+
 	return request, nil
 }
 
@@ -272,14 +275,15 @@ func (l *Conn) SearchWithPaging(searchRequest *SearchRequest, pagingSize uint32)
 
 func (l *Conn) Search(searchRequest *SearchRequest) (*SearchResult, error) {
 	messageID := l.nextMessageID()
-	packet := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Request")
-	packet.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "MessageID"))
+
 	// encode search request
 	encodedSearchRequest, err := searchRequest.encode()
 	if err != nil {
 		return nil, err
 	}
-	packet.AppendChild(encodedSearchRequest)
+
+	packet := newLDAPRequest(messageID, encodedSearchRequest)
+
 	// encode search controls
 	if searchRequest.Controls != nil {
 		packet.AppendChild(encodeControls(searchRequest.Controls))

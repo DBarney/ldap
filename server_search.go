@@ -195,45 +195,41 @@ func filterAttributes(entry *Entry, attributes []string) (*Entry, error) {
 
 /////////////////////////
 func encodeSearchResponse(messageID uint64, req SearchRequest, res *Entry) *ber.Packet {
-	responsePacket := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Response")
-	responsePacket.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "Message ID"))
-
-	searchEntry := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationSearchResultEntry, nil, "Search Result Entry")
-	searchEntry.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, res.DN, "Object Name"))
-
-	attrs := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Attributes:")
+	attrs := newSequence("Attributes:")
 	for _, attribute := range res.Attributes {
 		attrs.AppendChild(encodeSearchAttribute(attribute.Name, attribute.Values))
 	}
 
-	searchEntry.AppendChild(attrs)
-	responsePacket.AppendChild(searchEntry)
-
-	return responsePacket
+	return newLDAPResponse(messageID,
+		newApplication(ApplicationSearchResultEntry, "Search Result Entry",
+			newString(res.DN, "Object Name"),
+			attrs,
+		),
+	)
 }
 
 func encodeSearchAttribute(name string, values []string) *ber.Packet {
-	packet := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Attribute")
-	packet.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, name, "Attribute Name"))
 
 	valuesPacket := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSet, nil, "Attribute Values")
 	for _, value := range values {
 		valuesPacket.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, value, "Attribute Value"))
 	}
 
-	packet.AppendChild(valuesPacket)
+	packet := newSequence("Attribute",
+		newString(name, "Attribute Name"),
+		valuesPacket)
 
 	return packet
 }
 
 func encodeSearchDone(messageID uint64, ldapResultCode LDAPResultCode) *ber.Packet {
-	responsePacket := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Response")
-	responsePacket.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "Message ID"))
-	donePacket := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationSearchResultDone, nil, "Search result done")
-	donePacket.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(ldapResultCode), "resultCode: "))
-	donePacket.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "matchedDN: "))
-	donePacket.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "errorMessage: "))
-	responsePacket.AppendChild(donePacket)
+	return newLDAPResponse(messageID,
+		newApplication(ApplicationSearchResultsDone, "Search Result Done",
+			newInteger(uint64(ldapResultCode)),
+			newString("", "matchedDN: "),
+			newString("", "errorMessage: "),
+		),
+	)
 
 	return responsePacket
 }
