@@ -421,19 +421,22 @@ func (s searchCaseInsensitive) Search(boundDN string, searchReq SearchRequest, c
 }
 
 func TestRouteFunc(t *testing.T) {
-	if routeFunc("", []string{"a", "xyz", "tt"}) != "" {
-		t.Error("routeFunc failed")
+	cases := []struct {
+		key      string
+		expected string
+		values   []string
+	}{
+		{values: []string{"a=b", "x=y,a=b", "tt"}, key: "", expected: ""},
+		{values: []string{"a=b", "x=y,a=b", "tt"}, key: "a=b", expected: "a=b"},
+		{values: []string{"aa=b", "x=y,aa=b", "tt"}, key: "a=b", expected: ""},
+		{values: []string{"x=y,a=b", "a=b", "tt"}, key: "x=y,a=b", expected: "x=y,a=b"},
+		{values: []string{"x=y,a=b", "a=b", "tt"}, key: "nosuch", expected: ""},
 	}
-	if routeFunc("a=b", []string{"a=b", "x=y,a=b", "tt"}) != "a=b" {
-		t.Error("routeFunc failed")
-	}
-	if routeFunc("x=y,a=b", []string{"a=b", "x=y,a=b", "tt"}) != "x=y,a=b" {
-		t.Error("routeFunc failed")
-	}
-	if routeFunc("x=y,a=b", []string{"x=y,a=b", "a=b", "tt"}) != "x=y,a=b" {
-		t.Error("routeFunc failed")
-	}
-	if routeFunc("nosuch", []string{"x=y,a=b", "a=b", "tt"}) != "" {
-		t.Error("routeFunc failed")
+
+	for _, c := range cases {
+		res := routeFunc(c.key, c.values)
+		if res != c.expected {
+			t.Errorf("routeFunc failed: (%v , %v) -> %v != %v", c.key, c.values, c.expected, res)
+		}
 	}
 }

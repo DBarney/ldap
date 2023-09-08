@@ -131,12 +131,10 @@ func (l *Conn) Close() {
 
 // Returns the next available messageID
 func (l *Conn) nextMessageID() uint64 {
-	if l.chanMessageID != nil {
-		if messageID, ok := <-l.chanMessageID; ok {
-			return messageID
-		}
+	if l.chanMessageID == nil {
+		return 0
 	}
-	return 0
+	return <-l.chanMessageID
 }
 
 // StartTLS sends the command to start a TLS session and then creates a new TLS Client

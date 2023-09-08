@@ -330,12 +330,13 @@ func NewError(resultCode LDAPResultCode, err error) error {
 }
 
 func getLDAPResultCode(packet *ber.Packet) (code LDAPResultCode, description string) {
-	if len(packet.Children) >= 2 {
-		response := packet.Children[1]
-		if response.ClassType == ber.ClassApplication && response.TagType == ber.TypeConstructed && len(response.Children) == 3 {
-			return LDAPResultCode(response.Children[0].Value.(int64)), response.Children[2].Value.(string)
-		}
+	if len(packet.Children) < 2 {
+		return ErrorNetwork, "Invalid packet format"
 	}
-
+	response := packet.Children[1]
+	if response.ClassType == ber.ClassApplication && response.TagType == ber.TypeConstructed && len(response.Children) == 3 {
+		return LDAPResultCode(response.Children[0].Value.(int64)), response.Children[2].Value.(string)
+	}
 	return ErrorNetwork, "Invalid packet format"
+
 }

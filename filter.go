@@ -262,11 +262,12 @@ func ServerApplyFilter(f *ber.Packet, entry *Entry) (bool, LDAPResultCode) {
 		attribute := f.Children[0].Value.(string)
 		value := f.Children[1].Value.(string)
 		for _, a := range entry.Attributes {
-			if strings.ToLower(a.Name) == strings.ToLower(attribute) {
-				for _, v := range a.Values {
-					if strings.ToLower(v) == strings.ToLower(value) {
-						return true, LDAPResultSuccess
-					}
+			if strings.ToLower(a.Name) != strings.ToLower(attribute) {
+				continue
+			}
+			for _, v := range a.Values {
+				if strings.ToLower(v) == strings.ToLower(value) {
+					return true, LDAPResultSuccess
 				}
 			}
 		}
@@ -318,22 +319,23 @@ func ServerApplyFilter(f *ber.Packet, entry *Entry) (bool, LDAPResultCode) {
 		valueBytes := f.Children[1].Children[0].Data.Bytes()
 		valueLower := strings.ToLower(string(valueBytes[:]))
 		for _, a := range entry.Attributes {
-			if strings.ToLower(a.Name) == strings.ToLower(attribute) {
-				for _, v := range a.Values {
-					vLower := strings.ToLower(v)
-					switch f.Children[1].Children[0].Tag {
-					case FilterSubstringsInitial:
-						if strings.HasPrefix(vLower, valueLower) {
-							return true, LDAPResultSuccess
-						}
-					case FilterSubstringsAny:
-						if strings.Contains(vLower, valueLower) {
-							return true, LDAPResultSuccess
-						}
-					case FilterSubstringsFinal:
-						if strings.HasSuffix(vLower, valueLower) {
-							return true, LDAPResultSuccess
-						}
+			if strings.ToLower(a.Name) != strings.ToLower(attribute) {
+				continue
+			}
+			for _, v := range a.Values {
+				vLower := strings.ToLower(v)
+				switch f.Children[1].Children[0].Tag {
+				case FilterSubstringsInitial:
+					if strings.HasPrefix(vLower, valueLower) {
+						return true, LDAPResultSuccess
+					}
+				case FilterSubstringsAny:
+					if strings.Contains(vLower, valueLower) {
+						return true, LDAPResultSuccess
+					}
+				case FilterSubstringsFinal:
+					if strings.HasSuffix(vLower, valueLower) {
+						return true, LDAPResultSuccess
 					}
 				}
 			}

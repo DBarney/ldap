@@ -107,36 +107,37 @@ func DecodeControl(packet *ber.Packet) Control {
 	c.ControlType = ControlType
 	c.Criticality = false
 
-	if len(packet.Children) > 1 {
-		value := packet.Children[1]
-		if len(packet.Children) == 3 {
-			value = packet.Children[2]
-			packet.Children[1].Description = "Criticality"
-			c.Criticality = packet.Children[1].Value.(bool)
-		}
-
-		value.Description = "Control Value"
-		switch ControlType {
-		case ControlTypePaging:
-			value.Description += " (Paging)"
-			c := new(ControlPaging)
-			if value.Value != nil {
-				valueChildren := ber.DecodePacket(value.Data.Bytes())
-				value.Data.Truncate(0)
-				value.Value = nil
-				value.AppendChild(valueChildren)
-			}
-			value = value.Children[0]
-			value.Description = "Search Control Value"
-			value.Children[0].Description = "Paging Size"
-			value.Children[1].Description = "Cookie"
-			c.PagingSize = uint32(value.Children[0].Value.(int64))
-			c.Cookie = value.Children[1].Data.Bytes()
-			value.Children[1].Value = c.Cookie
-			return c
-		}
-		c.ControlValue = value.Value.(string)
+	if len(packet.Children) <= 1 {
+		return c
 	}
+	value := packet.Children[1]
+	if len(packet.Children) == 3 {
+		value = packet.Children[2]
+		packet.Children[1].Description = "Criticality"
+		c.Criticality = packet.Children[1].Value.(bool)
+	}
+
+	value.Description = "Control Value"
+	switch ControlType {
+	case ControlTypePaging:
+		value.Description += " (Paging)"
+		c := new(ControlPaging)
+		if value.Value != nil {
+			valueChildren := ber.DecodePacket(value.Data.Bytes())
+			value.Data.Truncate(0)
+			value.Value = nil
+			value.AppendChild(valueChildren)
+		}
+		value = value.Children[0]
+		value.Description = "Search Control Value"
+		value.Children[0].Description = "Paging Size"
+		value.Children[1].Description = "Cookie"
+		c.PagingSize = uint32(value.Children[0].Value.(int64))
+		c.Cookie = value.Children[1].Data.Bytes()
+		value.Children[1].Value = c.Cookie
+		return c
+	}
+	c.ControlValue = value.Value.(string)
 	return c
 }
 
