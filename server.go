@@ -47,17 +47,18 @@ type Closer interface {
 
 //
 type Server struct {
-	BindFns     map[string]Binder
-	SearchFns   map[string]Searcher
-	AddFns      map[string]Adder
-	ModifyFns   map[string]Modifier
-	DeleteFns   map[string]Deleter
-	ModifyDNFns map[string]ModifyDNr
-	CompareFns  map[string]Comparer
-	AbandonFns  map[string]Abandoner
-	ExtendedFns map[string]Extender
-	UnbindFns   map[string]Unbinder
-	CloseFns    map[string]Closer
+	Binder     Binder
+	Searcher   Searcher
+	Adder      Adder
+	Modifier   Modifier
+	Deleter    Deleter
+	ModifyDNr  ModifyDNr
+	Comparer   Comparer
+	Abandoner  Abandoner
+	Extendeder Extender
+	Unbinder   Unbinder
+	Closer     Closer
+
 	Quit        chan bool
 	EnforceLDAP bool
 	Stats       *Stats
@@ -84,63 +85,52 @@ func NewServer() *Server {
 	s.Quit = make(chan bool)
 
 	d := defaultHandler{}
-	s.BindFns = make(map[string]Binder)
-	s.SearchFns = make(map[string]Searcher)
-	s.AddFns = make(map[string]Adder)
-	s.ModifyFns = make(map[string]Modifier)
-	s.DeleteFns = make(map[string]Deleter)
-	s.ModifyDNFns = make(map[string]ModifyDNr)
-	s.CompareFns = make(map[string]Comparer)
-	s.AbandonFns = make(map[string]Abandoner)
-	s.ExtendedFns = make(map[string]Extender)
-	s.UnbindFns = make(map[string]Unbinder)
-	s.CloseFns = make(map[string]Closer)
-	s.BindFunc("", d)
-	s.SearchFunc("", d)
-	s.AddFunc("", d)
-	s.ModifyFunc("", d)
-	s.DeleteFunc("", d)
-	s.ModifyDNFunc("", d)
-	s.CompareFunc("", d)
-	s.AbandonFunc("", d)
-	s.ExtendedFunc("", d)
-	s.UnbindFunc("", d)
-	s.CloseFunc("", d)
+	s.BindFunc(d)
+	s.SearchFunc(d)
+	s.AddFunc(d)
+	s.ModifyFunc(d)
+	s.DeleteFunc(d)
+	s.ModifyDNFunc(d)
+	s.CompareFunc(d)
+	s.AbandonFunc(d)
+	s.ExtendedFunc(d)
+	s.UnbindFunc(d)
+	s.CloseFunc(d)
 	s.Stats = nil
 	return s
 }
-func (server *Server) BindFunc(baseDN string, f Binder) {
-	server.BindFns[baseDN] = f
+func (server *Server) BindFunc(f Binder) {
+	server.Binder = f
 }
-func (server *Server) SearchFunc(baseDN string, f Searcher) {
-	server.SearchFns[baseDN] = f
+func (server *Server) SearchFunc(f Searcher) {
+	server.Searcher = f
 }
-func (server *Server) AddFunc(baseDN string, f Adder) {
-	server.AddFns[baseDN] = f
+func (server *Server) AddFunc(f Adder) {
+	server.Adder = f
 }
-func (server *Server) ModifyFunc(baseDN string, f Modifier) {
-	server.ModifyFns[baseDN] = f
+func (server *Server) ModifyFunc(f Modifier) {
+	server.Modifier = f
 }
-func (server *Server) DeleteFunc(baseDN string, f Deleter) {
-	server.DeleteFns[baseDN] = f
+func (server *Server) DeleteFunc(f Deleter) {
+	server.Deleter = f
 }
-func (server *Server) ModifyDNFunc(baseDN string, f ModifyDNr) {
-	server.ModifyDNFns[baseDN] = f
+func (server *Server) ModifyDNFunc(f ModifyDNr) {
+	server.ModifyDNr = f
 }
-func (server *Server) CompareFunc(baseDN string, f Comparer) {
-	server.CompareFns[baseDN] = f
+func (server *Server) CompareFunc(f Comparer) {
+	server.Comparer = f
 }
-func (server *Server) AbandonFunc(baseDN string, f Abandoner) {
-	server.AbandonFns[baseDN] = f
+func (server *Server) AbandonFunc(f Abandoner) {
+	server.Abandoner = f
 }
-func (server *Server) ExtendedFunc(baseDN string, f Extender) {
-	server.ExtendedFns[baseDN] = f
+func (server *Server) ExtendedFunc(f Extender) {
+	server.Extendeder = f
 }
-func (server *Server) UnbindFunc(baseDN string, f Unbinder) {
-	server.UnbindFns[baseDN] = f
+func (server *Server) UnbindFunc(f Unbinder) {
+	server.Unbinder = f
 }
-func (server *Server) CloseFunc(baseDN string, f Closer) {
-	server.CloseFns[baseDN] = f
+func (server *Server) CloseFunc(f Closer) {
+	server.Closer = f
 }
 func (server *Server) QuitChannel(quit chan bool) {
 	server.Quit = quit
@@ -222,8 +212,10 @@ func (server *Server) Close() {
 
 //
 func (server *Server) handleConnection(conn net.Conn) {
-	defer conn.Close()
 	boundDN := "" // "" == anonymous
+
+	defer conn.Close()
+	defer server.Closer.Close(boundDN, conn)
 
 	for {
 		// read incoming LDAP packet
@@ -272,7 +264,7 @@ func (server *Server) handleConnection(conn net.Conn) {
 
 		case ApplicationBindRequest:
 			server.Stats.countBinds(1)
-			ldapResultCode := HandleBindRequest(req, server.BindFns, conn)
+			ldapResultCode := HandleBindRequest(req, server.Binder, conn)
 			if ldapResultCode == LDAPResultSuccess {
 				// no check needed, as HandleBindRequest does the check already
 				boundDN = req.Children[1].Value.(string)
@@ -291,33 +283,29 @@ func (server *Server) handleConnection(conn net.Conn) {
 			server.Stats.countUnbinds(1)
 			continue
 		case ApplicationExtendedRequest:
-			ldapResultCode := HandleExtendedRequest(req, boundDN, server.ExtendedFns, conn)
+			ldapResultCode := HandleExtendedRequest(req, boundDN, server.Extendeder, conn)
 			responsePacket = encodeLDAPResponse(messageID, ApplicationExtendedResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 		case ApplicationAbandonRequest:
-			HandleAbandonRequest(req, boundDN, server.AbandonFns, conn)
+			HandleAbandonRequest(req, boundDN, server.Abandoner, conn)
 			continue
 
 		case ApplicationAddRequest:
-			ldapResultCode := HandleAddRequest(req, boundDN, server.AddFns, conn)
+			ldapResultCode := HandleAddRequest(req, boundDN, server.Adder, conn)
 			responsePacket = encodeLDAPResponse(messageID, ApplicationAddResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 		case ApplicationModifyRequest:
-			ldapResultCode := HandleModifyRequest(req, boundDN, server.ModifyFns, conn)
+			ldapResultCode := HandleModifyRequest(req, boundDN, server.Modifier, conn)
 			responsePacket = encodeLDAPResponse(messageID, ApplicationModifyResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 		case ApplicationDelRequest:
-			ldapResultCode := HandleDeleteRequest(req, boundDN, server.DeleteFns, conn)
+			ldapResultCode := HandleDeleteRequest(req, boundDN, server.Deleter, conn)
 			responsePacket = encodeLDAPResponse(messageID, ApplicationDelResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 		case ApplicationModifyDNRequest:
-			ldapResultCode := HandleModifyDNRequest(req, boundDN, server.ModifyDNFns, conn)
+			ldapResultCode := HandleModifyDNRequest(req, boundDN, server.ModifyDNr, conn)
 			responsePacket = encodeLDAPResponse(messageID, ApplicationModifyDNResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 		case ApplicationCompareRequest:
-			ldapResultCode := HandleCompareRequest(req, boundDN, server.CompareFns, conn)
+			ldapResultCode := HandleCompareRequest(req, boundDN, server.Comparer, conn)
 			responsePacket = encodeLDAPResponse(messageID, ApplicationCompareResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 		}
 		sendPacket(conn, responsePacket)
-	}
-
-	for _, c := range server.CloseFns {
-		c.Close(boundDN, conn)
 	}
 
 }
@@ -330,31 +318,6 @@ func sendPacket(conn net.Conn, packet *ber.Packet) error {
 		return err
 	}
 	return nil
-}
-
-//
-func routeFunc(dn string, funcNames []string) string {
-	bestPick := ""
-	bestPickWeight := 0
-	dnMatch := "," + strings.ToLower(dn)
-	var weight int
-	for _, fn := range funcNames {
-		if !strings.HasSuffix(dnMatch, ","+fn) {
-			continue
-		}
-		//  empty string as 0, no-comma string 1 , etc
-		if fn == "" {
-			weight = 0
-		} else {
-			weight = strings.Count(fn, ",") + 1
-		}
-		if weight > bestPickWeight {
-			bestPick = fn
-			bestPickWeight = weight
-		}
-
-	}
-	return bestPick
 }
 
 //

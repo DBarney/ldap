@@ -19,7 +19,7 @@ var serverBaseDN = "o=testers,c=test"
 func TestBindAnonOK(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc("", bindAnonOK{})
+	s.BindFunc(bindAnonOK{})
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -75,8 +75,8 @@ func TestBindAnonFail(t *testing.T) {
 func TestBindSimpleOK(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.SearchFunc("", searchSimple{})
-	s.BindFunc("", bindSimple{})
+	s.SearchFunc(searchSimple{})
+	s.BindFunc(bindSimple{})
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -107,7 +107,7 @@ func TestBindSimpleOK(t *testing.T) {
 func TestBindSimpleFailBadPw(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc("", bindSimple{})
+	s.BindFunc(bindSimple{})
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -138,7 +138,7 @@ func TestBindSimpleFailBadPw(t *testing.T) {
 func TestBindSimpleFailBadDn(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc("", bindSimple{})
+	s.BindFunc(bindSimple{})
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -171,7 +171,7 @@ func TestBindSSL(t *testing.T) {
 	longerTimeout := 300 * time.Millisecond
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc("", bindAnonOK{})
+	s.BindFunc(bindAnonOK{})
 	go func() {
 		if err := s.ListenAndServeTLS(listenString, "tests/cert_DONOTUSE.pem", "tests/key_DONOTUSE.pem"); err != nil {
 			t.Errorf("s.ListenAndServeTLS failed: %s", err.Error())
@@ -200,7 +200,7 @@ func TestBindSSL(t *testing.T) {
 func TestBindPanic(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc("", bindPanic{})
+	s.BindFunc(bindPanic{})
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -241,8 +241,8 @@ func TestSearchStats(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
 
-	s.SearchFunc("", searchSimple{})
-	s.BindFunc("", bindAnonOK{})
+	s.SearchFunc(searchSimple{})
+	s.BindFunc(bindAnonOK{})
 	s.SetStats(true)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
@@ -418,25 +418,4 @@ func (s searchCaseInsensitive) Search(boundDN string, searchReq SearchRequest, c
 		}},
 	}
 	return ServerSearchResult{entries, []string{}, []Control{}, LDAPResultSuccess}, nil
-}
-
-func TestRouteFunc(t *testing.T) {
-	cases := []struct {
-		key      string
-		expected string
-		values   []string
-	}{
-		{values: []string{"a=b", "x=y,a=b", "tt"}, key: "", expected: ""},
-		{values: []string{"a=b", "x=y,a=b", "tt"}, key: "a=b", expected: "a=b"},
-		{values: []string{"aa=b", "x=y,aa=b", "tt"}, key: "a=b", expected: ""},
-		{values: []string{"x=y,a=b", "a=b", "tt"}, key: "x=y,a=b", expected: "x=y,a=b"},
-		{values: []string{"x=y,a=b", "a=b", "tt"}, key: "nosuch", expected: ""},
-	}
-
-	for _, c := range cases {
-		res := routeFunc(c.key, c.values)
-		if res != c.expected {
-			t.Errorf("routeFunc failed: (%v , %v) -> %v != %v", c.key, c.values, c.expected, res)
-		}
-	}
 }
