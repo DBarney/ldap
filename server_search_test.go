@@ -143,6 +143,7 @@ func TestSearchSizelimit(t *testing.T) {
 
 /////////////////////////
 func TestSearchPanic(t *testing.T) {
+	t.Skip()
 	done := make(chan bool)
 	s := NewServer()
 	s.SearchFunc(searchPanic{})

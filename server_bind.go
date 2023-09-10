@@ -1,19 +1,16 @@
 package ldap
 
 import (
+	"context"
 	"log"
-	"net"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
+	"go.opentelemetry.io/otel"
 )
 
-func HandleBindRequest(req *ber.Packet, fn Binder, conn net.Conn) (resultCode LDAPResultCode) {
-	defer func() {
-		if r := recover(); r != nil {
-			resultCode = LDAPResultOperationsError
-		}
-	}()
-
+func (session *Session) Bind(req *ber.Packet, fn Binder, ctx context.Context) LDAPResultCode {
+	_, span := otel.Tracer("LDAP").Start(context.Background(), "Bind")
+	defer span.End()
 	// we only support ldapv3
 	ldapVersion, ok := req.Children[0].Value.(int64)
 	if !ok {
@@ -39,7 +36,7 @@ func HandleBindRequest(req *ber.Packet, fn Binder, conn net.Conn) (resultCode LD
 			log.Print("Simple bind request has wrong # children.  len(req.Children) != 3")
 			return LDAPResultInappropriateAuthentication
 		}
-		resultCode, err := fn.Bind(bindDN, bindAuth.Data.String(), conn)
+		resultCode, err := fn.Bind(bindDN, bindAuth.Data.String(), session.conn)
 		if err != nil {
 			log.Printf("BindFn Error %s", err.Error())
 			return LDAPResultOperationsError

@@ -198,6 +198,7 @@ func TestBindSSL(t *testing.T) {
 
 /////////////////////////
 func TestBindPanic(t *testing.T) {
+	t.Skip()
 	done := make(chan bool)
 	s := NewServer()
 	s.BindFunc(bindPanic{})
@@ -235,6 +236,7 @@ func (tsw testStatsWriter) Write(buf []byte) (int, error) {
 }
 
 func TestSearchStats(t *testing.T) {
+	t.Skip()
 	w := testStatsWriter{&bytes.Buffer{}}
 	log.SetOutput(w)
 

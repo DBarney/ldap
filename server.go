@@ -1,14 +1,15 @@
 package ldap
 
 import (
+	"context"
 	"crypto/tls"
 	"io"
 	"log"
 	"net"
-	"strings"
 	"sync"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
+	"go.opentelemetry.io/otel"
 )
 
 type Binder interface {
@@ -62,6 +63,12 @@ type Server struct {
 	Quit        chan bool
 	EnforceLDAP bool
 	Stats       *Stats
+}
+
+type Session struct {
+	boundDN string
+	conn    net.Conn
+	server  *Server
 }
 
 type Stats struct {
@@ -175,33 +182,35 @@ func (server *Server) ListenAndServe(listenString string) error {
 }
 
 func (server *Server) Serve(ln net.Listener) error {
-	newConn := make(chan net.Conn)
+	defer close(server.Quit)
+
+	conChan := make(chan net.Conn)
+	errChan := make(chan error)
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				if !strings.HasSuffix(err.Error(), "use of closed network connection") {
-					log.Printf("Error accepting network connection: %s", err.Error())
-				}
-				break
+				errChan <- err
+				return
 			}
-			newConn <- conn
+			conChan <- conn
 		}
 	}()
 
-listener:
+	ctx, span := otel.Tracer("LDAP").Start(context.Background(), "Listen")
+	defer span.End()
+
 	for {
 		select {
-		case c := <-newConn:
-			server.Stats.countConns(1)
-			go server.handleConnection(c)
+		case c := <-conChan:
+			go server.handleConnection(c, ctx)
+		case err := <-errChan:
+			return err
 		case <-server.Quit:
 			ln.Close()
-			close(server.Quit)
-			break listener
+			return nil
 		}
 	}
-	return nil
 }
 
 //Close closes the underlying net.Listener, and waits for confirmation
@@ -211,103 +220,109 @@ func (server *Server) Close() {
 }
 
 //
-func (server *Server) handleConnection(conn net.Conn) {
-	boundDN := "" // "" == anonymous
+func (server *Server) handleConnection(conn net.Conn, ctx context.Context) {
+	ctx, span := otel.Tracer("LDAP").Start(ctx, "Connection")
+	defer span.End()
 
-	defer conn.Close()
-	defer server.Closer.Close(boundDN, conn)
+	session := &Session{
+		conn:    conn,
+		server:  server,
+		boundDN: "",
+	}
 
 	for {
 		// read incoming LDAP packet
 		packet, err := ber.ReadPacket(conn)
+		//start := time.Now()
 		if err == io.EOF || err == io.ErrUnexpectedEOF { // Client closed connection
 			break
 		} else if err != nil {
 			log.Printf("handleConnection ber.ReadPacket ERROR: %s", err.Error())
 			break
 		}
-
-		// sanity check this packet
-		if len(packet.Children) < 2 {
-			return
+		responsePacket := session.handleCommand(packet, ctx)
+		if responsePacket != nil {
+			sendPacket(conn, responsePacket)
 		}
+	}
+}
 
-		// check the message ID
-		messageID64, ok := packet.Children[0].Value.(int64)
-		if !ok {
-			return
-		}
-		messageID := uint64(messageID64)
-
-		// check the ClassType
-		req := packet.Children[1]
-		if req.ClassType != ber.ClassApplication {
-			return
-		}
-		// handle controls if present
-		controls := []Control{}
-		if len(packet.Children) > 2 {
-			for _, child := range packet.Children[2].Children {
-				controls = append(controls, DecodeControl(child))
-			}
-		}
-
-		//log.Printf("DEBUG: handling operation: %s [%d]", ApplicationMap[req.Tag], req.Tag)
-		//ber.PrintPacket(packet) // DEBUG
-
-		// dispatch the LDAP operation
-		var responsePacket *ber.Packet
-		switch req.Tag { // ldap op code
-		default:
-			log.Printf("Unhandled operation: %s [%d]", ApplicationMap[req.Tag], req.Tag)
-			responsePacket = encodeLDAPResponse(messageID, ApplicationAddResponse, LDAPResultOperationsError, "Unsupported operation")
-
-		case ApplicationBindRequest:
-			server.Stats.countBinds(1)
-			ldapResultCode := HandleBindRequest(req, server.Binder, conn)
-			if ldapResultCode == LDAPResultSuccess {
-				// no check needed, as HandleBindRequest does the check already
-				boundDN = req.Children[1].Value.(string)
-			}
-			responsePacket = encodeBindResponse(messageID, ldapResultCode)
-		case ApplicationSearchRequest:
-			server.Stats.countSearches(1)
-			if err := HandleSearchRequest(req, &controls, messageID, boundDN, server, conn); err != nil {
-				log.Printf("handleSearchRequest error %s", err.Error()) // TODO: make this more testable/better err handling - stop using log, stop using breaks?
-				e := err.(*Error)
-				responsePacket = encodeSearchDone(messageID, e.ResultCode)
-			} else {
-				responsePacket = encodeSearchDone(messageID, LDAPResultSuccess)
-			}
-		case ApplicationUnbindRequest:
-			server.Stats.countUnbinds(1)
-			continue
-		case ApplicationExtendedRequest:
-			ldapResultCode := HandleExtendedRequest(req, boundDN, server.Extendeder, conn)
-			responsePacket = encodeLDAPResponse(messageID, ApplicationExtendedResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
-		case ApplicationAbandonRequest:
-			HandleAbandonRequest(req, boundDN, server.Abandoner, conn)
-			continue
-
-		case ApplicationAddRequest:
-			ldapResultCode := HandleAddRequest(req, boundDN, server.Adder, conn)
-			responsePacket = encodeLDAPResponse(messageID, ApplicationAddResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
-		case ApplicationModifyRequest:
-			ldapResultCode := HandleModifyRequest(req, boundDN, server.Modifier, conn)
-			responsePacket = encodeLDAPResponse(messageID, ApplicationModifyResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
-		case ApplicationDelRequest:
-			ldapResultCode := HandleDeleteRequest(req, boundDN, server.Deleter, conn)
-			responsePacket = encodeLDAPResponse(messageID, ApplicationDelResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
-		case ApplicationModifyDNRequest:
-			ldapResultCode := HandleModifyDNRequest(req, boundDN, server.ModifyDNr, conn)
-			responsePacket = encodeLDAPResponse(messageID, ApplicationModifyDNResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
-		case ApplicationCompareRequest:
-			ldapResultCode := HandleCompareRequest(req, boundDN, server.Comparer, conn)
-			responsePacket = encodeLDAPResponse(messageID, ApplicationCompareResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
-		}
-		sendPacket(conn, responsePacket)
+func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (p *ber.Packet) {
+	ctx, span := otel.Tracer("LDAP").Start(ctx, "Command")
+	defer span.End()
+	// sanity check this packet
+	if len(packet.Children) < 2 {
+		return nil
 	}
 
+	// check the message ID
+	messageID64, ok := packet.Children[0].Value.(int64)
+	if !ok {
+		return nil
+	}
+	messageID := uint64(messageID64)
+
+	// check the ClassType
+	req := packet.Children[1]
+	if req.ClassType != ber.ClassApplication {
+		return nil
+	}
+	// handle controls if present
+	controls := []Control{}
+	if len(packet.Children) > 2 {
+		for _, child := range packet.Children[2].Children {
+			controls = append(controls, DecodeControl(child))
+		}
+	}
+
+	// dispatch the LDAP operation
+	switch req.Tag {
+	default:
+		return encodeLDAPResponse(messageID, ApplicationAddResponse, LDAPResultOperationsError, "Unsupported operation")
+
+	case ApplicationBindRequest:
+		ldapResultCode := session.Bind(req, session.server.Binder, ctx)
+		return encodeBindResponse(messageID, ldapResultCode)
+
+	case ApplicationSearchRequest:
+		code := LDAPResultCode(LDAPResultSuccess)
+		if err := session.Search(req, &controls, messageID, session.server, ctx); err != nil {
+			log.Printf("handleSearchRequest error %s", err.Error())
+			e := err.(*Error)
+			code = e.ResultCode
+		}
+		return encodeLDAPResponse(messageID, ApplicationSearchResultDone, code, LDAPResultCodeMap[code])
+
+	case ApplicationUnbindRequest:
+		session.boundDN = "" // anything else?
+	case ApplicationExtendedRequest:
+		ldapResultCode := session.Extended(req, session.server.Extendeder, ctx)
+		return encodeLDAPResponse(messageID, ApplicationExtendedResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+
+	case ApplicationAbandonRequest:
+		session.Abandon(req, session.server.Abandoner, ctx)
+
+	case ApplicationAddRequest:
+		ldapResultCode := session.Add(req, session.server.Adder, ctx)
+		return encodeLDAPResponse(messageID, ApplicationAddResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+
+	case ApplicationModifyRequest:
+		ldapResultCode := session.Modify(req, session.server.Modifier, ctx)
+		return encodeLDAPResponse(messageID, ApplicationModifyResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+
+	case ApplicationDelRequest:
+		ldapResultCode := session.Delete(req, session.server.Deleter, ctx)
+		return encodeLDAPResponse(messageID, ApplicationDelResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+
+	case ApplicationModifyDNRequest:
+		ldapResultCode := session.ModifyDN(req, session.server.ModifyDNr, ctx)
+		return encodeLDAPResponse(messageID, ApplicationModifyDNResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+
+	case ApplicationCompareRequest:
+		ldapResultCode := session.Compare(req, session.server.Comparer, ctx)
+		return encodeLDAPResponse(messageID, ApplicationCompareResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+	}
+	return nil
 }
 
 //
@@ -370,35 +385,3 @@ func (h defaultHandler) Close(boundDN string, conn net.Conn) error {
 	conn.Close()
 	return nil
 }
-
-//
-func (stats *Stats) countConns(delta int) {
-	if stats != nil {
-		stats.statsMutex.Lock()
-		stats.Conns += delta
-		stats.statsMutex.Unlock()
-	}
-}
-func (stats *Stats) countBinds(delta int) {
-	if stats != nil {
-		stats.statsMutex.Lock()
-		stats.Binds += delta
-		stats.statsMutex.Unlock()
-	}
-}
-func (stats *Stats) countUnbinds(delta int) {
-	if stats != nil {
-		stats.statsMutex.Lock()
-		stats.Unbinds += delta
-		stats.statsMutex.Unlock()
-	}
-}
-func (stats *Stats) countSearches(delta int) {
-	if stats != nil {
-		stats.statsMutex.Lock()
-		stats.Searches += delta
-		stats.statsMutex.Unlock()
-	}
-}
-
-//

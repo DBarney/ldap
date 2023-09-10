@@ -1,5 +1,15 @@
 module github.com/dbarney/ldap
 
-go 1.14
+go 1.19
 
-require github.com/go-asn1-ber/asn1-ber v1.5.4
+require (
+	github.com/go-asn1-ber/asn1-ber v1.5.4
+	go.opentelemetry.io/otel v1.17.0
+)
+
+require (
+	github.com/go-logr/logr v1.2.4 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
+	go.opentelemetry.io/otel/metric v1.17.0 // indirect
+	go.opentelemetry.io/otel/trace v1.17.0 // indirect
+)

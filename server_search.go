@@ -1,22 +1,18 @@
 package ldap
 
 import (
+	"context"
 	"errors"
-	"fmt"
-	"net"
 	"strings"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
+	"go.opentelemetry.io/otel"
 )
 
-func HandleSearchRequest(req *ber.Packet, controls *[]Control, messageID uint64, boundDN string, server *Server, conn net.Conn) (resultErr error) {
-	defer func() {
-		if r := recover(); r != nil {
-			resultErr = NewError(LDAPResultOperationsError, fmt.Errorf("Search function panic: %s", r))
-		}
-	}()
-
-	searchReq, err := parseSearchRequest(boundDN, req, controls)
+func (session *Session) Search(req *ber.Packet, controls *[]Control, messageID uint64, server *Server, ctx context.Context) error {
+	_, span := otel.Tracer("LDAP").Start(ctx, "Search")
+	defer span.End()
+	searchReq, err := parseSearchRequest(session.boundDN, req, controls)
 	if err != nil {
 		return NewError(LDAPResultOperationsError, err)
 	}
@@ -26,7 +22,7 @@ func HandleSearchRequest(req *ber.Packet, controls *[]Control, messageID uint64,
 		return NewError(LDAPResultOperationsError, err)
 	}
 
-	searchResp, err := server.Searcher.Search(boundDN, searchReq, conn)
+	searchResp, err := server.Searcher.Search(session.boundDN, searchReq, session.conn)
 	if err != nil {
 		return NewError(searchResp.ResultCode, err)
 	}
@@ -86,7 +82,7 @@ func HandleSearchRequest(req *ber.Packet, controls *[]Control, messageID uint64,
 
 		// respond
 		responsePacket := encodeSearchResponse(messageID, searchReq, entry)
-		if err = sendPacket(conn, responsePacket); err != nil {
+		if err = sendPacket(session.conn, responsePacket); err != nil {
 			return NewError(LDAPResultOperationsError, err)
 		}
 	}

@@ -1,13 +1,16 @@
 package ldap
 
 import (
+	"context"
 	"log"
-	"net"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
+	"go.opentelemetry.io/otel"
 )
 
-func HandleAddRequest(req *ber.Packet, boundDN string, fn Adder, conn net.Conn) (resultCode LDAPResultCode) {
+func (session *Session) Add(req *ber.Packet, fn Adder, ctx context.Context) LDAPResultCode {
+	_, span := otel.Tracer("LDAP").Start(ctx, "Add")
+	defer span.End()
 	if len(req.Children) != 2 {
 		return LDAPResultProtocolError
 	}
@@ -38,7 +41,7 @@ func HandleAddRequest(req *ber.Packet, boundDN string, fn Adder, conn net.Conn) 
 		}
 		addReq.attributes = append(addReq.attributes, a)
 	}
-	resultCode, err := fn.Add(boundDN, addReq, conn)
+	resultCode, err := fn.Add(session.boundDN, addReq, session.conn)
 	if err != nil {
 		log.Printf("AddFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -46,9 +49,11 @@ func HandleAddRequest(req *ber.Packet, boundDN string, fn Adder, conn net.Conn) 
 	return resultCode
 }
 
-func HandleDeleteRequest(req *ber.Packet, boundDN string, fn Deleter, conn net.Conn) (resultCode LDAPResultCode) {
+func (session *Session) Delete(req *ber.Packet, fn Deleter, ctx context.Context) LDAPResultCode {
+	_, span := otel.Tracer("LDAP").Start(ctx, "Delete")
+	defer span.End()
 	deleteDN := ber.DecodeString(req.Data.Bytes())
-	resultCode, err := fn.Delete(boundDN, deleteDN, conn)
+	resultCode, err := fn.Delete(session.boundDN, deleteDN, session.conn)
 	if err != nil {
 		log.Printf("DeleteFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -56,7 +61,9 @@ func HandleDeleteRequest(req *ber.Packet, boundDN string, fn Deleter, conn net.C
 	return resultCode
 }
 
-func HandleModifyRequest(req *ber.Packet, boundDN string, fn Modifier, conn net.Conn) (resultCode LDAPResultCode) {
+func (session *Session) Modify(req *ber.Packet, fn Modifier, ctx context.Context) LDAPResultCode {
+	_, span := otel.Tracer("LDAP").Start(ctx, "Modify")
+	defer span.End()
 	if len(req.Children) != 2 {
 		return LDAPResultProtocolError
 	}
@@ -102,7 +109,7 @@ func HandleModifyRequest(req *ber.Packet, boundDN string, fn Modifier, conn net.
 			modReq.Replace(attr.AttrType, attr.AttrVals)
 		}
 	}
-	resultCode, err := fn.Modify(boundDN, modReq, conn)
+	resultCode, err := fn.Modify(session.boundDN, modReq, session.conn)
 	if err != nil {
 		log.Printf("ModifyFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -110,7 +117,9 @@ func HandleModifyRequest(req *ber.Packet, boundDN string, fn Modifier, conn net.
 	return resultCode
 }
 
-func HandleCompareRequest(req *ber.Packet, boundDN string, fn Comparer, conn net.Conn) (resultCode LDAPResultCode) {
+func (session *Session) Compare(req *ber.Packet, fn Comparer, ctx context.Context) LDAPResultCode {
+	_, span := otel.Tracer("LDAP").Start(ctx, "Compare")
+	defer span.End()
 	if len(req.Children) != 2 {
 		return LDAPResultProtocolError
 	}
@@ -133,7 +142,7 @@ func HandleCompareRequest(req *ber.Packet, boundDN string, fn Comparer, conn net
 		return LDAPResultProtocolError
 	}
 	compReq.ava = []AttributeValueAssertion{AttributeValueAssertion{attr, val}}
-	resultCode, err := fn.Compare(boundDN, compReq, conn)
+	resultCode, err := fn.Compare(session.boundDN, compReq, session.conn)
 	if err != nil {
 		log.Printf("CompareFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -141,7 +150,9 @@ func HandleCompareRequest(req *ber.Packet, boundDN string, fn Comparer, conn net
 	return resultCode
 }
 
-func HandleExtendedRequest(req *ber.Packet, boundDN string, fn Extender, conn net.Conn) (resultCode LDAPResultCode) {
+func (session *Session) Extended(req *ber.Packet, fn Extender, ctx context.Context) LDAPResultCode {
+	_, span := otel.Tracer("LDAP").Start(ctx, "Extend")
+	defer span.End()
 	if len(req.Children) != 1 && len(req.Children) != 2 {
 		return LDAPResultProtocolError
 	}
@@ -151,7 +162,7 @@ func HandleExtendedRequest(req *ber.Packet, boundDN string, fn Extender, conn ne
 		val = ber.DecodeString(req.Children[1].Data.Bytes())
 	}
 	extReq := ExtendedRequest{name, val}
-	resultCode, err := fn.Extended(boundDN, extReq, conn)
+	resultCode, err := fn.Extended(session.boundDN, extReq, session.conn)
 	if err != nil {
 		log.Printf("ExtendedFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -159,12 +170,16 @@ func HandleExtendedRequest(req *ber.Packet, boundDN string, fn Extender, conn ne
 	return resultCode
 }
 
-func HandleAbandonRequest(req *ber.Packet, boundDN string, fn Abandoner, conn net.Conn) error {
-	err := fn.Abandon(boundDN, conn)
+func (session *Session) Abandon(req *ber.Packet, fn Abandoner, ctx context.Context) error {
+	_, span := otel.Tracer("LDAP").Start(ctx, "Abandon")
+	defer span.End()
+	err := fn.Abandon(session.boundDN, session.conn)
 	return err
 }
 
-func HandleModifyDNRequest(req *ber.Packet, boundDN string, fn ModifyDNr, conn net.Conn) (resultCode LDAPResultCode) {
+func (session *Session) ModifyDN(req *ber.Packet, fn ModifyDNr, ctx context.Context) LDAPResultCode {
+	_, span := otel.Tracer("LDAP").Start(ctx, "ModifyDN")
+	defer span.End()
 	if len(req.Children) != 3 && len(req.Children) != 4 {
 		return LDAPResultProtocolError
 	}
@@ -188,7 +203,7 @@ func HandleModifyDNRequest(req *ber.Packet, boundDN string, fn ModifyDNr, conn n
 			return LDAPResultProtocolError
 		}
 	}
-	resultCode, err := fn.ModifyDN(boundDN, mdnReq, conn)
+	resultCode, err := fn.ModifyDN(session.boundDN, mdnReq, session.conn)
 	if err != nil {
 		log.Printf("ModifyDN Error %s", err.Error())
 		return LDAPResultOperationsError
