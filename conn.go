@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
@@ -31,16 +32,16 @@ type messagePacket struct {
 
 // Conn represents an LDAP Connection
 type Conn struct {
-	conn          net.Conn
-	isTLS         bool
-	Debug         debugging
-	chanConfirm   chan bool
-	chanResults   map[uint64]chan *ber.Packet
-	chanMessage   chan *messagePacket
-	chanMessageID chan uint64
-	wgSender      sync.WaitGroup
-	chanDone      chan struct{}
-	once          sync.Once
+	conn        net.Conn
+	isTLS       bool
+	Debug       debugging
+	chanConfirm chan bool
+	chanResults map[uint64]chan *ber.Packet
+	chanMessage chan *messagePacket
+	messageID   uint64
+	wgSender    sync.WaitGroup
+	chanDone    chan struct{}
+	once        sync.Once
 }
 
 // Dial connects to the given address on the given network using net.Dial
@@ -96,12 +97,12 @@ func DialTLSDialer(network, addr string, config *tls.Config, dialer *net.Dialer)
 // NewConn returns a new Conn using conn for network I/O.
 func NewConn(conn net.Conn) *Conn {
 	return &Conn{
-		conn:          conn,
-		chanConfirm:   make(chan bool),
-		chanMessageID: make(chan uint64),
-		chanMessage:   make(chan *messagePacket, 10),
-		chanResults:   map[uint64]chan *ber.Packet{},
-		chanDone:      make(chan struct{}),
+		conn:        conn,
+		chanConfirm: make(chan bool),
+		messageID:   1,
+		chanMessage: make(chan *messagePacket, 10),
+		chanResults: map[uint64]chan *ber.Packet{},
+		chanDone:    make(chan struct{}),
 	}
 }
 
@@ -131,10 +132,7 @@ func (l *Conn) Close() {
 
 // Returns the next available messageID
 func (l *Conn) nextMessageID() uint64 {
-	if l.chanMessageID == nil {
-		return 0
-	}
-	return <-l.chanMessageID
+	return atomic.AddUint64(&l.messageID, 1)
 }
 
 // StartTLS sends the command to start a TLS session and then creates a new TLS Client
@@ -231,16 +229,12 @@ func (l *Conn) processMessages() {
 			close(channel)
 			delete(l.chanResults, messageID)
 		}
-		close(l.chanMessageID)
 		l.chanConfirm <- true
 		close(l.chanConfirm)
 	}()
 
-	var messageID uint64 = 1
 	for {
 		select {
-		case l.chanMessageID <- messageID:
-			messageID++
 		case messagePacket, ok := <-l.chanMessage:
 			if !ok {
 				l.Debug.Printf("Shutting down - message channel is closed")
