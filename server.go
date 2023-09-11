@@ -11,10 +11,17 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+type ServerSearchResult struct {
+	Entries    []*Entry
+	Referrals  []string
+	Controls   []Control
+	ResultCode LDAPResultCode
+}
+
 //
 type Server struct {
 	handler     Handler
-	Quit        chan bool
+	quit        chan bool
 	EnforceLDAP bool
 }
 
@@ -26,17 +33,10 @@ type Session struct {
 	enforceLDAP bool
 }
 
-type ServerSearchResult struct {
-	Entries    []*Entry
-	Referrals  []string
-	Controls   []Control
-	ResultCode LDAPResultCode
-}
-
 //
 func NewServer() *Server {
 	s := new(Server)
-	s.Quit = make(chan bool)
+	s.quit = make(chan bool)
 
 	s.handler = NewRouter()
 	return s
@@ -44,10 +44,6 @@ func NewServer() *Server {
 
 func (server *Server) Handler(h Handler) {
 	server.handler = h
-}
-
-func (server *Server) QuitChannel(quit chan bool) {
-	server.Quit = quit
 }
 
 func (server *Server) ListenAndServeTLS(listenString string, certFile string, keyFile string) error {
@@ -73,7 +69,7 @@ func (server *Server) ListenAndServe(listenString string) error {
 }
 
 func (server *Server) Serve(ln net.Listener) error {
-	defer close(server.Quit)
+	defer close(server.quit)
 
 	conChan := make(chan net.Conn)
 	errChan := make(chan error)
@@ -97,7 +93,7 @@ func (server *Server) Serve(ln net.Listener) error {
 			go server.handleConnection(c, ctx)
 		case err := <-errChan:
 			return err
-		case <-server.Quit:
+		case <-server.quit:
 			ln.Close()
 			return nil
 		}
@@ -106,8 +102,8 @@ func (server *Server) Serve(ln net.Listener) error {
 
 //Close closes the underlying net.Listener, and waits for confirmation
 func (server *Server) Close() {
-	server.Quit <- true
-	<-server.Quit
+	server.quit <- true
+	<-server.quit
 }
 
 //
