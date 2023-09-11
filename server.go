@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"runtime/debug"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"go.opentelemetry.io/otel"
@@ -158,7 +159,7 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 	}
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println("Recovered in f", r)
+			fmt.Printf("panic: %v\n%v", r, string(debug.Stack()))
 			// res.Type is already set correctly before the operation
 			// is handled, this way we can send an error back over
 			// the socket with the correct response type set
