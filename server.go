@@ -156,56 +156,68 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 	res := &Response{
 		MessageID: req.MessageID,
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered in f", r)
+			// res.Type is already set correctly before the operation
+			// is handled, this way we can send an error back over
+			// the socket with the correct response type set
+			res.Code = LDAPResultOperationsError
+			res.Message = LDAPResultCodeMap[res.Code]
+			p = res.ToBER()
+		}
+	}()
+
 	// dispatch the LDAP operation
 	switch command.Tag {
 	default:
-		res.Code = LDAPResultOperationsError
 		res.Type = ApplicationAddResponse
+		res.Code = LDAPResultOperationsError
 		res.Message = "Unsupported operation"
 
 	case ApplicationBindRequest:
-		res.Code = session.Bind(command, ctx)
 		res.Type = ApplicationBindResponse
+		res.Code = session.Bind(command, ctx)
 
 	case ApplicationSearchRequest:
+		res.Type = ApplicationSearchResultDone
 		res.Code = LDAPResultCode(LDAPResultSuccess)
 		if err := session.Search(command, req.Controls, req.MessageID, ctx); err != nil {
 			log.Printf("handleSearchRequest error %s", err.Error())
 			e := err.(*Error)
 			res.Code = e.ResultCode
 		}
-		res.Type = ApplicationSearchResultDone
 
 	case ApplicationUnbindRequest:
 		session.boundDN = "" // anything else?
 		return nil
 	case ApplicationExtendedRequest:
-		res.Code = session.Extended(command, ctx)
 		res.Type = ApplicationExtendedResponse
+		res.Code = session.Extended(command, ctx)
 
 	case ApplicationAbandonRequest:
 		session.Abandon(command, ctx)
 		return nil
 
 	case ApplicationAddRequest:
-		res.Code = session.Add(command, ctx)
 		res.Type = ApplicationAddResponse
+		res.Code = session.Add(command, ctx)
 
 	case ApplicationModifyRequest:
-		res.Code = session.Modify(command, ctx)
 		res.Type = ApplicationModifyResponse
+		res.Code = session.Modify(command, ctx)
 
 	case ApplicationDelRequest:
-		res.Code = session.Delete(command, ctx)
 		res.Type = ApplicationDelResponse
+		res.Code = session.Delete(command, ctx)
 
 	case ApplicationModifyDNRequest:
-		res.Code = session.ModifyDN(command, ctx)
 		res.Type = ApplicationModifyDNResponse
+		res.Code = session.ModifyDN(command, ctx)
 
 	case ApplicationCompareRequest:
-		res.Code = session.Compare(command, ctx)
 		res.Type = ApplicationCompareResponse
+		res.Code = session.Compare(command, ctx)
 	}
 	res.Message = LDAPResultCodeMap[res.Code]
 

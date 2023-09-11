@@ -206,7 +206,6 @@ func TestBindSSL(t *testing.T) {
 
 /////////////////////////
 func TestBindPanic(t *testing.T) {
-	t.Skip()
 	done := make(chan bool)
 	s := NewServer()
 	r := NewRouter()
