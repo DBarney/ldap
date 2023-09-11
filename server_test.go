@@ -19,7 +19,9 @@ var serverBaseDN = "o=testers,c=test"
 func TestBindAnonOK(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc(bindAnonOK{})
+	r := NewRouter()
+	r.HandleBind(bindAnonOK{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -75,8 +77,10 @@ func TestBindAnonFail(t *testing.T) {
 func TestBindSimpleOK(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.SearchFunc(searchSimple{})
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleSearch(searchSimple{})
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -107,7 +111,9 @@ func TestBindSimpleOK(t *testing.T) {
 func TestBindSimpleFailBadPw(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -138,7 +144,9 @@ func TestBindSimpleFailBadPw(t *testing.T) {
 func TestBindSimpleFailBadDn(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -171,7 +179,9 @@ func TestBindSSL(t *testing.T) {
 	longerTimeout := 300 * time.Millisecond
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc(bindAnonOK{})
+	r := NewRouter()
+	r.HandleBind(bindAnonOK{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServeTLS(listenString, "tests/cert_DONOTUSE.pem", "tests/key_DONOTUSE.pem"); err != nil {
 			t.Errorf("s.ListenAndServeTLS failed: %s", err.Error())
@@ -201,7 +211,9 @@ func TestBindPanic(t *testing.T) {
 	t.Skip()
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc(bindPanic{})
+	r := NewRouter()
+	r.HandleBind(bindPanic{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -243,8 +255,10 @@ func TestSearchStats(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
 
-	s.SearchFunc(searchSimple{})
-	s.BindFunc(bindAnonOK{})
+	r := NewRouter()
+	r.HandleSearch(searchSimple{})
+	r.HandleBind(bindAnonOK{})
+	s.Handler(r)
 	s.SetStats(true)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {

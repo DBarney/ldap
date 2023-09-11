@@ -11,8 +11,10 @@ import (
 func TestSearchSimpleOK(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.SearchFunc(searchSimple{})
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleSearch(searchSimple{})
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -52,8 +54,10 @@ func TestSearchSizelimit(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
 	s.EnforceLDAP = true
-	s.SearchFunc(searchSimple{})
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleSearch(searchSimple{})
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -146,8 +150,10 @@ func TestSearchPanic(t *testing.T) {
 	t.Skip()
 	done := make(chan bool)
 	s := NewServer()
-	s.SearchFunc(searchPanic{})
-	s.BindFunc(bindAnonOK{})
+	r := NewRouter()
+	r.HandleSearch(searchPanic{})
+	r.HandleBind(bindAnonOK{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -211,8 +217,10 @@ func TestSearchFiltering(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
 	s.EnforceLDAP = true
-	s.SearchFunc(searchSimple{})
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleSearch(searchSimple{})
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -246,8 +254,10 @@ func TestSearchAttributes(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
 	s.EnforceLDAP = true
-	s.SearchFunc(searchSimple{})
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleSearch(searchSimple{})
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -287,8 +297,10 @@ func TestSearchAllUserAttributes(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
 	s.EnforceLDAP = true
-	s.SearchFunc(searchSimple{})
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleSearch(searchSimple{})
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -338,8 +350,10 @@ func TestSearchScope(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
 	s.EnforceLDAP = true
-	s.SearchFunc(searchSimple{})
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleSearch(searchSimple{})
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -396,8 +410,10 @@ func TestSearchScopeCaseInsensitive(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
 	s.EnforceLDAP = true
-	s.SearchFunc(searchCaseInsensitive{})
-	s.BindFunc(bindCaseInsensitive{})
+	r := NewRouter()
+	r.HandleSearch(searchCaseInsensitive{})
+	r.HandleBind(bindCaseInsensitive{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -426,8 +442,10 @@ func TestSearchScopeCaseInsensitive(t *testing.T) {
 func TestSearchControls(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.SearchFunc(searchControls{})
-	s.BindFunc(bindSimple{})
+	r := NewRouter()
+	r.HandleSearch(searchControls{})
+	r.HandleBind(bindSimple{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())

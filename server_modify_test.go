@@ -12,8 +12,10 @@ import (
 func TestAdd(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc(modifyTestHandler{})
-	s.AddFunc(modifyTestHandler{})
+	r := NewRouter()
+	r.HandleBind(modifyTestHandler{})
+	r.HandleAdd(modifyTestHandler{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -47,8 +49,10 @@ func TestAdd(t *testing.T) {
 func TestDelete(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc(modifyTestHandler{})
-	s.DeleteFunc(modifyTestHandler{})
+	r := NewRouter()
+	r.HandleBind(modifyTestHandler{})
+	r.HandleDelete(modifyTestHandler{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -78,8 +82,10 @@ func TestDelete(t *testing.T) {
 func TestModify(t *testing.T) {
 	done := make(chan bool)
 	s := NewServer()
-	s.BindFunc(modifyTestHandler{})
-	s.ModifyFunc(modifyTestHandler{})
+	r := NewRouter()
+	r.HandleBind(modifyTestHandler{})
+	r.HandleModify(modifyTestHandler{})
+	s.Handler(r)
 	go func() {
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
@@ -113,8 +119,10 @@ func TestModifyDN(t *testing.T) {
 	go func() {
 		s := NewServer()
 		s.QuitChannel(quit)
-		s.BindFunc(modifyTestHandler{})
-		s.AddFunc(modifyTestHandler{})
+		r := NewRouter()
+		r.HandleBind(modifyTestHandler{})
+		r.HandleAdd(modifyTestHandler{})
+		s.Handler(r)
 		if err := s.ListenAndServe(listenString); err != nil {
 			t.Errorf("s.ListenAndServe failed: %s", err.Error())
 		}

@@ -12,54 +12,9 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-type Binder interface {
-	Bind(bindDN, bindSimplePw string, conn net.Conn) (LDAPResultCode, error)
-}
-type Searcher interface {
-	Search(boundDN string, req SearchRequest, conn net.Conn) (ServerSearchResult, error)
-}
-type Adder interface {
-	Add(boundDN string, req AddRequest, conn net.Conn) (LDAPResultCode, error)
-}
-type Modifier interface {
-	Modify(boundDN string, req ModifyRequest, conn net.Conn) (LDAPResultCode, error)
-}
-type Deleter interface {
-	Delete(boundDN, deleteDN string, conn net.Conn) (LDAPResultCode, error)
-}
-type ModifyDNr interface {
-	ModifyDN(boundDN string, req ModifyDNRequest, conn net.Conn) (LDAPResultCode, error)
-}
-type Comparer interface {
-	Compare(boundDN string, req CompareRequest, conn net.Conn) (LDAPResultCode, error)
-}
-type Abandoner interface {
-	Abandon(boundDN string, conn net.Conn) error
-}
-type Extender interface {
-	Extended(boundDN string, req ExtendedRequest, conn net.Conn) (LDAPResultCode, error)
-}
-type Unbinder interface {
-	Unbind(boundDN string, conn net.Conn) (LDAPResultCode, error)
-}
-type Closer interface {
-	Close(boundDN string, conn net.Conn) error
-}
-
 //
 type Server struct {
-	Binder     Binder
-	Searcher   Searcher
-	Adder      Adder
-	Modifier   Modifier
-	Deleter    Deleter
-	ModifyDNr  ModifyDNr
-	Comparer   Comparer
-	Abandoner  Abandoner
-	Extendeder Extender
-	Unbinder   Unbinder
-	Closer     Closer
-
+	handler     Handler
 	Quit        chan bool
 	EnforceLDAP bool
 	Stats       *Stats
@@ -69,6 +24,7 @@ type Session struct {
 	boundDN string
 	conn    net.Conn
 	server  *Server
+	handler Handler
 }
 
 type Stats struct {
@@ -91,54 +47,15 @@ func NewServer() *Server {
 	s := new(Server)
 	s.Quit = make(chan bool)
 
-	d := defaultHandler{}
-	s.BindFunc(d)
-	s.SearchFunc(d)
-	s.AddFunc(d)
-	s.ModifyFunc(d)
-	s.DeleteFunc(d)
-	s.ModifyDNFunc(d)
-	s.CompareFunc(d)
-	s.AbandonFunc(d)
-	s.ExtendedFunc(d)
-	s.UnbindFunc(d)
-	s.CloseFunc(d)
+	s.handler = NewRouter()
 	s.Stats = nil
 	return s
 }
-func (server *Server) BindFunc(f Binder) {
-	server.Binder = f
+
+func (server *Server) Handler(h Handler) {
+	server.handler = h
 }
-func (server *Server) SearchFunc(f Searcher) {
-	server.Searcher = f
-}
-func (server *Server) AddFunc(f Adder) {
-	server.Adder = f
-}
-func (server *Server) ModifyFunc(f Modifier) {
-	server.Modifier = f
-}
-func (server *Server) DeleteFunc(f Deleter) {
-	server.Deleter = f
-}
-func (server *Server) ModifyDNFunc(f ModifyDNr) {
-	server.ModifyDNr = f
-}
-func (server *Server) CompareFunc(f Comparer) {
-	server.Comparer = f
-}
-func (server *Server) AbandonFunc(f Abandoner) {
-	server.Abandoner = f
-}
-func (server *Server) ExtendedFunc(f Extender) {
-	server.Extendeder = f
-}
-func (server *Server) UnbindFunc(f Unbinder) {
-	server.Unbinder = f
-}
-func (server *Server) CloseFunc(f Closer) {
-	server.Closer = f
-}
+
 func (server *Server) QuitChannel(quit chan bool) {
 	server.Quit = quit
 }
@@ -227,6 +144,7 @@ func (server *Server) handleConnection(conn net.Conn, ctx context.Context) {
 	session := &Session{
 		conn:    conn,
 		server:  server,
+		handler: server.handler,
 		boundDN: "",
 	}
 
@@ -281,7 +199,7 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 		return encodeLDAPResponse(messageID, ApplicationAddResponse, LDAPResultOperationsError, "Unsupported operation")
 
 	case ApplicationBindRequest:
-		ldapResultCode := session.Bind(req, session.server.Binder, ctx)
+		ldapResultCode := session.Bind(req, session.handler, ctx)
 		return encodeLDAPResponse(messageID, ApplicationBindResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationSearchRequest:
@@ -296,30 +214,30 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 	case ApplicationUnbindRequest:
 		session.boundDN = "" // anything else?
 	case ApplicationExtendedRequest:
-		ldapResultCode := session.Extended(req, session.server.Extendeder, ctx)
+		ldapResultCode := session.Extended(req, session.handler, ctx)
 		return encodeLDAPResponse(messageID, ApplicationExtendedResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationAbandonRequest:
-		session.Abandon(req, session.server.Abandoner, ctx)
+		session.Abandon(req, session.handler, ctx)
 
 	case ApplicationAddRequest:
-		ldapResultCode := session.Add(req, session.server.Adder, ctx)
+		ldapResultCode := session.Add(req, session.handler, ctx)
 		return encodeLDAPResponse(messageID, ApplicationAddResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationModifyRequest:
-		ldapResultCode := session.Modify(req, session.server.Modifier, ctx)
+		ldapResultCode := session.Modify(req, session.handler, ctx)
 		return encodeLDAPResponse(messageID, ApplicationModifyResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationDelRequest:
-		ldapResultCode := session.Delete(req, session.server.Deleter, ctx)
+		ldapResultCode := session.Delete(req, session.handler, ctx)
 		return encodeLDAPResponse(messageID, ApplicationDelResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationModifyDNRequest:
-		ldapResultCode := session.ModifyDN(req, session.server.ModifyDNr, ctx)
+		ldapResultCode := session.ModifyDN(req, session.handler, ctx)
 		return encodeLDAPResponse(messageID, ApplicationModifyDNResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationCompareRequest:
-		ldapResultCode := session.Compare(req, session.server.Comparer, ctx)
+		ldapResultCode := session.Compare(req, session.handler, ctx)
 		return encodeLDAPResponse(messageID, ApplicationCompareResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 	}
 	return nil
@@ -345,43 +263,4 @@ func encodeLDAPResponse(messageID uint64, responseType uint8, ldapResultCode LDA
 	reponse.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, message, "errorMessage: "))
 	responsePacket.AppendChild(reponse)
 	return responsePacket
-}
-
-//
-type defaultHandler struct {
-}
-
-func (h defaultHandler) Bind(bindDN, bindSimplePw string, conn net.Conn) (LDAPResultCode, error) {
-	return LDAPResultInvalidCredentials, nil
-}
-func (h defaultHandler) Search(boundDN string, req SearchRequest, conn net.Conn) (ServerSearchResult, error) {
-	return ServerSearchResult{make([]*Entry, 0), []string{}, []Control{}, LDAPResultSuccess}, nil
-}
-func (h defaultHandler) Add(boundDN string, req AddRequest, conn net.Conn) (LDAPResultCode, error) {
-	return LDAPResultInsufficientAccessRights, nil
-}
-func (h defaultHandler) Modify(boundDN string, req ModifyRequest, conn net.Conn) (LDAPResultCode, error) {
-	return LDAPResultInsufficientAccessRights, nil
-}
-func (h defaultHandler) Delete(boundDN, deleteDN string, conn net.Conn) (LDAPResultCode, error) {
-	return LDAPResultInsufficientAccessRights, nil
-}
-func (h defaultHandler) ModifyDN(boundDN string, req ModifyDNRequest, conn net.Conn) (LDAPResultCode, error) {
-	return LDAPResultInsufficientAccessRights, nil
-}
-func (h defaultHandler) Compare(boundDN string, req CompareRequest, conn net.Conn) (LDAPResultCode, error) {
-	return LDAPResultInsufficientAccessRights, nil
-}
-func (h defaultHandler) Abandon(boundDN string, conn net.Conn) error {
-	return nil
-}
-func (h defaultHandler) Extended(boundDN string, req ExtendedRequest, conn net.Conn) (LDAPResultCode, error) {
-	return LDAPResultProtocolError, nil
-}
-func (h defaultHandler) Unbind(boundDN string, conn net.Conn) (LDAPResultCode, error) {
-	return LDAPResultSuccess, nil
-}
-func (h defaultHandler) Close(boundDN string, conn net.Conn) error {
-	conn.Close()
-	return nil
 }

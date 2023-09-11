@@ -22,7 +22,7 @@ func (session *Session) Search(req *ber.Packet, controls *[]Control, messageID u
 		return NewError(LDAPResultOperationsError, err)
 	}
 
-	searchResp, err := server.Searcher.Search(session.boundDN, searchReq, session.conn)
+	searchResp, err := server.handler.Search(session.boundDN, searchReq, session.conn)
 	if err != nil {
 		return NewError(searchResp.ResultCode, err)
 	}
