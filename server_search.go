@@ -9,20 +9,21 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-func (session *Session) Search(req *ber.Packet, controls *[]Control, messageID uint64, ctx context.Context) error {
+func (session *Session) Search(req *ber.Packet, controls []Control, messageID uint64, ctx context.Context) error {
 	_, span := otel.Tracer("LDAP").Start(ctx, "Search")
 	defer span.End()
-	searchReq, err := parseSearchRequest(session.boundDN, req, controls)
+	searchReq, err := DecodeSearchRequest(req)
 	if err != nil {
-		return NewError(LDAPResultOperationsError, err)
+		return err
 	}
+	searchReq.Controls = controls
 
 	filterPacket, err := CompileFilter(searchReq.Filter)
 	if err != nil {
 		return NewError(LDAPResultOperationsError, err)
 	}
 
-	searchResp, err := session.handler.Search(session.boundDN, searchReq, session.conn)
+	searchResp, err := session.handler.Search(session.boundDN, *searchReq, session.conn)
 	if err != nil {
 		return NewError(searchResp.ResultCode, err)
 	}
@@ -81,69 +82,13 @@ func (session *Session) Search(req *ber.Packet, controls *[]Control, messageID u
 		}
 
 		// respond
-		responsePacket := encodeSearchResponse(messageID, searchReq, entry)
-		if err = sendPacket(session.conn, responsePacket); err != nil {
+		responsePacket := encodeSearchResponse(messageID, *searchReq, entry)
+		_, err := session.conn.Write(responsePacket.Bytes())
+		if err != nil {
 			return NewError(LDAPResultOperationsError, err)
 		}
 	}
 	return nil
-}
-
-/////////////////////////
-func parseSearchRequest(boundDN string, req *ber.Packet, controls *[]Control) (SearchRequest, error) {
-	if len(req.Children) != 8 {
-		return SearchRequest{}, NewError(LDAPResultOperationsError, errors.New("Bad search request"))
-	}
-
-	// Parse the request
-	baseObject, ok := req.Children[0].Value.(string)
-	if !ok {
-		return SearchRequest{}, NewError(LDAPResultProtocolError, errors.New("Bad search request"))
-	}
-	s, ok := req.Children[1].Value.(int64)
-	if !ok {
-		return SearchRequest{}, NewError(LDAPResultProtocolError, errors.New("Bad search request"))
-	}
-	scope := int(s)
-	d, ok := req.Children[2].Value.(int64)
-	if !ok {
-		return SearchRequest{}, NewError(LDAPResultProtocolError, errors.New("Bad search request"))
-	}
-	derefAliases := int(d)
-	s, ok = req.Children[3].Value.(int64)
-	if !ok {
-		return SearchRequest{}, NewError(LDAPResultProtocolError, errors.New("Bad search request"))
-	}
-	sizeLimit := int(s)
-	t, ok := req.Children[4].Value.(int64)
-	if !ok {
-		return SearchRequest{}, NewError(LDAPResultProtocolError, errors.New("Bad search request"))
-	}
-	timeLimit := int(t)
-	typesOnly := false
-	if req.Children[5].Value != nil {
-		typesOnly, ok = req.Children[5].Value.(bool)
-		if !ok {
-			return SearchRequest{}, NewError(LDAPResultProtocolError, errors.New("Bad search request"))
-		}
-	}
-	filter, err := DecompileFilter(req.Children[6])
-	if err != nil {
-		return SearchRequest{}, err
-	}
-	attributes := []string{}
-	for _, attr := range req.Children[7].Children {
-		a, ok := attr.Value.(string)
-		if !ok {
-			return SearchRequest{}, NewError(LDAPResultProtocolError, errors.New("Bad search request"))
-		}
-		attributes = append(attributes, a)
-	}
-	searchReq := SearchRequest{baseObject, scope,
-		derefAliases, sizeLimit, timeLimit,
-		typesOnly, filter, attributes, *controls}
-
-	return searchReq, nil
 }
 
 /////////////////////////

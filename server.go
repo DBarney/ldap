@@ -3,6 +3,7 @@ package ldap
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -131,7 +132,10 @@ func (server *Server) handleConnection(conn net.Conn, ctx context.Context) {
 		}
 		responsePacket := session.handleCommand(packet, ctx)
 		if responsePacket != nil {
-			sendPacket(conn, responsePacket)
+			_, err := conn.Write(responsePacket.Bytes())
+			if err != nil {
+				fmt.Println("unable to write response", err)
+			}
 		}
 	}
 }
@@ -139,103 +143,71 @@ func (server *Server) handleConnection(conn net.Conn, ctx context.Context) {
 func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (p *ber.Packet) {
 	ctx, span := otel.Tracer("LDAP").Start(ctx, "Command")
 	defer span.End()
-	// sanity check this packet
-	if len(packet.Children) < 2 {
+
+	req, err := DecodeRequest(packet)
+	if err != nil {
+		session.conn.Close()
+		fmt.Println(err)
 		return nil
 	}
 
-	// check the message ID
-	messageID64, ok := packet.Children[0].Value.(int64)
-	if !ok {
-		return nil
-	}
-	messageID := uint64(messageID64)
+	command := req.Command
 
-	// check the ClassType
-	req := packet.Children[1]
-	if req.ClassType != ber.ClassApplication {
-		return nil
+	res := &Response{
+		MessageID: req.MessageID,
 	}
-	// handle controls if present
-	controls := []Control{}
-	if len(packet.Children) > 2 {
-		for _, child := range packet.Children[2].Children {
-			controls = append(controls, DecodeControl(child))
-		}
-	}
-
-	var code LDAPResultCode
-	var tag ber.Tag
 	// dispatch the LDAP operation
-	switch req.Tag {
+	switch command.Tag {
 	default:
-		return encodeLDAPResponse(messageID, ApplicationAddResponse, LDAPResultOperationsError, "Unsupported operation")
+		res.Code = LDAPResultOperationsError
+		res.Type = ApplicationAddResponse
+		res.Message = "Unsupported operation"
 
 	case ApplicationBindRequest:
-		code = session.Bind(req, ctx)
-		tag = ApplicationBindResponse
+		res.Code = session.Bind(command, ctx)
+		res.Type = ApplicationBindResponse
 
 	case ApplicationSearchRequest:
-		code = LDAPResultCode(LDAPResultSuccess)
-		if err := session.Search(req, &controls, messageID, ctx); err != nil {
+		res.Code = LDAPResultCode(LDAPResultSuccess)
+		if err := session.Search(command, req.Controls, req.MessageID, ctx); err != nil {
 			log.Printf("handleSearchRequest error %s", err.Error())
 			e := err.(*Error)
-			code = e.ResultCode
+			res.Code = e.ResultCode
 		}
-		tag = ApplicationSearchResultDone
+		res.Type = ApplicationSearchResultDone
 
 	case ApplicationUnbindRequest:
 		session.boundDN = "" // anything else?
 		return nil
 	case ApplicationExtendedRequest:
-		code = session.Extended(req, ctx)
-		tag = ApplicationExtendedResponse
+		res.Code = session.Extended(command, ctx)
+		res.Type = ApplicationExtendedResponse
 
 	case ApplicationAbandonRequest:
-		session.Abandon(req, ctx)
+		session.Abandon(command, ctx)
 		return nil
 
 	case ApplicationAddRequest:
-		code = session.Add(req, ctx)
-		tag = ApplicationAddResponse
+		res.Code = session.Add(command, ctx)
+		res.Type = ApplicationAddResponse
 
 	case ApplicationModifyRequest:
-		code = session.Modify(req, ctx)
-		tag = ApplicationModifyResponse
+		res.Code = session.Modify(command, ctx)
+		res.Type = ApplicationModifyResponse
 
 	case ApplicationDelRequest:
-		code = session.Delete(req, ctx)
-		tag = ApplicationDelResponse
+		res.Code = session.Delete(command, ctx)
+		res.Type = ApplicationDelResponse
 
 	case ApplicationModifyDNRequest:
-		code = session.ModifyDN(req, ctx)
-		tag = ApplicationModifyDNResponse
+		res.Code = session.ModifyDN(command, ctx)
+		res.Type = ApplicationModifyDNResponse
 
 	case ApplicationCompareRequest:
-		code = session.Compare(req, ctx)
-		tag = ApplicationCompareResponse
+		res.Code = session.Compare(command, ctx)
+		res.Type = ApplicationCompareResponse
 	}
-	return encodeLDAPResponse(messageID, tag, code, LDAPResultCodeMap[code])
-}
+	res.Message = LDAPResultCodeMap[res.Code]
 
-//
-func sendPacket(conn net.Conn, packet *ber.Packet) error {
-	_, err := conn.Write(packet.Bytes())
-	if err != nil {
-		log.Printf("Error Sending Message: %s", err.Error())
-		return err
-	}
-	return nil
-}
-
-//
-func encodeLDAPResponse(messageID uint64, responseType ber.Tag, code LDAPResultCode, message string) *ber.Packet {
-	responsePacket := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Response")
-	responsePacket.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "Message ID"))
-	reponse := ber.Encode(ber.ClassApplication, ber.TypeConstructed, responseType, nil, ApplicationMap[ber.Tag(responseType)])
-	reponse.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(code), "resultCode: "))
-	reponse.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "matchedDN: "))
-	reponse.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, message, "errorMessage: "))
-	responsePacket.AppendChild(reponse)
-	return responsePacket
+	return res.ToBER()
 }

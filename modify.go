@@ -1,36 +1,6 @@
-// Copyright 2014 The Go Authors. All rights reserved.
-// Use of this source code is governed by a BSD-style
-// license that can be found in the LICENSE file.
-//
-// File contains Modify functionality
-//
-// https://tools.ietf.org/html/rfc4511
-//
-// ModifyRequest ::= [APPLICATION 6] SEQUENCE {
-//      object          LDAPDN,
-//      changes         SEQUENCE OF change SEQUENCE {
-//           operation       ENUMERATED {
-//                add     (0),
-//                delete  (1),
-//                replace (2),
-//                ...  },
-//           modification    PartialAttribute } }
-//
-// PartialAttribute ::= SEQUENCE {
-//      type       AttributeDescription,
-//      vals       SET OF value AttributeValue }
-//
-// AttributeDescription ::= LDAPString
-//                         -- Constrained to <attributedescription>
-//                         -- [RFC4512]
-//
-// AttributeValue ::= OCTET STRING
-//
-
 package ldap
 
 import (
-	"errors"
 	"log"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
@@ -48,9 +18,39 @@ var LDAPModifyAttributeMap = map[uint64]string{
 	ReplaceAttribute: "Replace",
 }
 
+type ModifyRequest struct {
+	Dn                string
+	AddAttributes     []PartialAttribute
+	DeleteAttributes  []PartialAttribute
+	ReplaceAttributes []PartialAttribute
+}
+
 type PartialAttribute struct {
 	AttrType string
 	AttrVals []string
+	op       int64
+}
+
+func (mod *ModifyRequest) ToBER() *ber.Packet {
+	request := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationModifyRequest, nil, "Modify Request")
+	request.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, mod.Dn, "DN"))
+
+	ops := map[uint][]PartialAttribute{
+		AddAttribute:     mod.AddAttributes,
+		DeleteAttribute:  mod.DeleteAttributes,
+		ReplaceAttribute: mod.ReplaceAttributes,
+	}
+	changes := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Changes")
+	for op, attributes := range ops {
+		for _, attribute := range attributes {
+			change := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Change")
+			change.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, op, "Operation"))
+			change.AppendChild(attribute.encode())
+			changes.AppendChild(change)
+		}
+	}
+	request.AppendChild(changes)
+	return request
 }
 
 func (p *PartialAttribute) encode() *ber.Packet {
@@ -62,13 +62,6 @@ func (p *PartialAttribute) encode() *ber.Packet {
 	}
 	seq.AppendChild(set)
 	return seq
-}
-
-type ModifyRequest struct {
-	Dn                string
-	AddAttributes     []PartialAttribute
-	DeleteAttributes  []PartialAttribute
-	ReplaceAttributes []PartialAttribute
 }
 
 func (m *ModifyRequest) Add(attrType string, attrVals []string) {
@@ -83,80 +76,62 @@ func (m *ModifyRequest) Replace(attrType string, attrVals []string) {
 	m.ReplaceAttributes = append(m.ReplaceAttributes, PartialAttribute{AttrType: attrType, AttrVals: attrVals})
 }
 
-func (m ModifyRequest) encode() *ber.Packet {
-	request := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ApplicationModifyRequest, nil, "Modify Request")
-	request.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, m.Dn, "DN"))
-	changes := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Changes")
-	for _, attribute := range m.AddAttributes {
-		change := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Change")
-		change.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(AddAttribute), "Operation"))
-		change.AppendChild(attribute.encode())
-		changes.AppendChild(change)
+func DecodeModifyRequest(p *ber.Packet) (*ModifyRequest, error) {
+	if len(p.Children) != 2 {
+		return nil, ErrBadProtocol
 	}
-	for _, attribute := range m.DeleteAttributes {
-		change := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Change")
-		change.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(DeleteAttribute), "Operation"))
-		change.AppendChild(attribute.encode())
-		changes.AppendChild(change)
+	var ok bool
+	modReq := &ModifyRequest{}
+	modReq.Dn, ok = p.Children[0].Value.(string)
+	if !ok {
+		return nil, ErrBadProtocol
 	}
-	for _, attribute := range m.ReplaceAttributes {
-		change := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "Change")
-		change.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(ReplaceAttribute), "Operation"))
-		change.AppendChild(attribute.encode())
-		changes.AppendChild(change)
+	for _, change := range p.Children[1].Children {
+		attr, err := DecodePartialAttribute(change)
+		if err != nil {
+			return nil, err
+		}
+		switch attr.op {
+		default:
+			log.Printf("Unrecognized Modify attribute %d", attr.op)
+			return nil, ErrBadProtocol
+		case AddAttribute:
+			modReq.Add(attr.AttrType, attr.AttrVals)
+		case DeleteAttribute:
+			modReq.Delete(attr.AttrType, attr.AttrVals)
+		case ReplaceAttribute:
+			modReq.Replace(attr.AttrType, attr.AttrVals)
+		}
 	}
-	request.AppendChild(changes)
-	return request
+	return modReq, nil
 }
 
-func NewModifyRequest(
-	dn string,
-) *ModifyRequest {
-	return &ModifyRequest{
-		Dn: dn,
+func DecodePartialAttribute(p *ber.Packet) (*PartialAttribute, error) {
+	var ok bool
+	if len(p.Children) != 2 {
+		return nil, ErrBadProtocol
 	}
-}
-
-func (l *Conn) Modify(modifyRequest *ModifyRequest) error {
-	messageID := l.nextMessageID()
-	packet := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Request")
-	packet.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "MessageID"))
-	packet.AppendChild(modifyRequest.encode())
-
-	l.Debug.PrintPacket(packet)
-
-	channel, err := l.sendMessage(packet)
-	if err != nil {
-		return err
+	attr := &PartialAttribute{}
+	attrs := p.Children[1].Children
+	if len(attrs) != 2 {
+		return nil, ErrBadProtocol
 	}
-	if channel == nil {
-		return NewError(ErrorNetwork, errors.New("ldap: could not send message"))
+	attr.AttrType, ok = attrs[0].Value.(string)
+	if !ok {
+		return nil, ErrBadProtocol
 	}
-	defer l.finishMessage(messageID)
-
-	l.Debug.Printf("%d: waiting for response", messageID)
-	packet = <-channel
-	l.Debug.Printf("%d: got response %p", messageID, packet)
-	if packet == nil {
-		return NewError(ErrorNetwork, errors.New("ldap: could not retrieve message"))
-	}
-
-	if l.Debug {
-		if err := addLDAPDescriptions(packet); err != nil {
-			return err
+	for _, val := range attrs[1].Children {
+		v, ok := val.Value.(string)
+		if !ok {
+			return nil, ErrBadProtocol
 		}
-		ber.PrintPacket(packet)
+		attr.AttrVals = append(attr.AttrVals, v)
 	}
-
-	if packet.Children[1].Tag == ApplicationModifyResponse {
-		resultCode, resultDescription := getLDAPResultCode(packet)
-		if resultCode != 0 {
-			return NewError(resultCode, errors.New(resultDescription))
-		}
-	} else {
-		log.Printf("Unexpected Response: %d", packet.Children[1].Tag)
+	op, ok := p.Children[0].Value.(int64)
+	if !ok {
+		return nil, ErrBadProtocol
 	}
+	attr.op = op
+	return attr, nil
 
-	l.Debug.Printf("%d: returning", messageID)
-	return nil
 }
