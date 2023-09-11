@@ -9,22 +9,13 @@ import (
 	"errors"
 	"log"
 	"net"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
 )
 
-const (
-	MessageQuit     = 0
-	MessageRequest  = 1
-	MessageResponse = 2
-	MessageFinish   = 3
-)
-
 type messagePacket struct {
-	Op        int
 	MessageID uint64
 	Packet    *ber.Packet
 	Channel   chan *ber.Packet
@@ -35,13 +26,11 @@ type Conn struct {
 	conn        net.Conn
 	isTLS       bool
 	Debug       debugging
-	chanConfirm chan bool
 	chanResults map[uint64]chan *ber.Packet
 	chanMessage chan *messagePacket
 	messageID   uint64
-	wgSender    sync.WaitGroup
 	chanDone    chan struct{}
-	once        sync.Once
+	chanClosed  chan struct{}
 }
 
 // Dial connects to the given address on the given network using net.Dial
@@ -98,11 +87,11 @@ func DialTLSDialer(network, addr string, config *tls.Config, dialer *net.Dialer)
 func NewConn(conn net.Conn) *Conn {
 	return &Conn{
 		conn:        conn,
-		chanConfirm: make(chan bool),
 		messageID:   1,
-		chanMessage: make(chan *messagePacket, 10),
+		chanMessage: make(chan *messagePacket, 0),
 		chanResults: map[uint64]chan *ber.Packet{},
-		chanDone:    make(chan struct{}),
+		chanDone:    make(chan struct{}, 0),
+		chanClosed:  make(chan struct{}, 0),
 	}
 }
 
@@ -113,21 +102,11 @@ func (l *Conn) start() {
 
 // Close closes the connection.
 func (l *Conn) Close() {
-	l.once.Do(func() {
-		close(l.chanDone)
-		l.wgSender.Wait()
-
-		l.Debug.Printf("Sending quit message and waiting for confirmation")
-		l.chanMessage <- &messagePacket{Op: MessageQuit}
-		<-l.chanConfirm
-		close(l.chanMessage)
-
-		l.Debug.Printf("Closing network connection")
-		if err := l.conn.Close(); err != nil {
-			log.Print(err)
-		}
-	})
-	<-l.chanDone
+	select {
+	case l.chanDone <- struct{}{}:
+		<-l.chanClosed
+	case <-l.chanClosed:
+	}
 }
 
 // Returns the next available messageID
@@ -136,6 +115,7 @@ func (l *Conn) nextMessageID() uint64 {
 }
 
 // StartTLS sends the command to start a TLS session and then creates a new TLS Client
+// TODO: this can seriously screw up the req/response flow if start has already been called
 func (l *Conn) StartTLS(config *tls.Config) error {
 	messageID := l.nextMessageID()
 
@@ -176,22 +156,9 @@ func (l *Conn) StartTLS(config *tls.Config) error {
 	return nil
 }
 
-func (l *Conn) closing() bool {
-	select {
-	case <-l.chanDone:
-		return true
-	default:
-		return false
-	}
-}
-
 func (l *Conn) sendMessage(packet *ber.Packet) (chan *ber.Packet, error) {
-	if l.closing() {
-		return nil, NewError(ErrorNetwork, errors.New("ldap: connection closed"))
-	}
 	out := make(chan *ber.Packet)
 	message := &messagePacket{
-		Op:        MessageRequest,
 		MessageID: packet.Children[0].Value.(uint64),
 		Packet:    packet,
 		Channel:   out,
@@ -201,74 +168,50 @@ func (l *Conn) sendMessage(packet *ber.Packet) (chan *ber.Packet, error) {
 }
 
 func (l *Conn) finishMessage(messageID uint64) {
-	if l.closing() {
-		return
-	}
-	message := &messagePacket{
-		Op:        MessageFinish,
-		MessageID: messageID,
-	}
-	l.sendProcessMessage(message)
+	//TODO: thread safe
+	close(l.chanResults[messageID])
+	delete(l.chanResults, messageID)
 }
 
-func (l *Conn) sendProcessMessage(message *messagePacket) bool {
-	l.wgSender.Add(1)
-	defer l.wgSender.Done()
-
-	if l.closing() {
-		return false
+func (l *Conn) sendProcessMessage(message *messagePacket) error {
+	select {
+	case <-l.chanClosed:
+		return NewError(ErrorNetwork, errors.New("ldap: connection closed"))
+	case l.chanMessage <- message:
+		return nil
 	}
-	l.chanMessage <- message
-	return true
 }
 
 func (l *Conn) processMessages() {
 	defer func() {
+		close(l.chanClosed)
 		for messageID, channel := range l.chanResults {
 			l.Debug.Printf("Closing channel for MessageID %d", messageID)
 			close(channel)
-			delete(l.chanResults, messageID)
 		}
-		l.chanConfirm <- true
-		close(l.chanConfirm)
+		close(l.chanDone)
 	}()
 
 	for {
 		select {
-		case messagePacket, ok := <-l.chanMessage:
-			if !ok {
-				l.Debug.Printf("Shutting down - message channel is closed")
-				return
+		case <-l.chanDone:
+			l.Debug.Printf("Shutting down - quit message received")
+			err := l.conn.Close()
+			if err != nil {
+				log.Print(err)
 			}
-			switch messagePacket.Op {
-			case MessageQuit:
-				l.Debug.Printf("Shutting down - quit message received")
-				return
-			case MessageRequest:
-				// Add to message list and write to network
-				l.Debug.Printf("Sending message %d", messagePacket.MessageID)
-				l.chanResults[messagePacket.MessageID] = messagePacket.Channel
-				// go routine
-				buf := messagePacket.Packet.Bytes()
+			return
+		case messagePacket := <-l.chanMessage:
 
-				_, err := l.conn.Write(buf)
-				if err != nil {
-					l.Debug.Printf("Error Sending Message: %s", err.Error())
-					break
-				}
-			case MessageResponse:
-				l.Debug.Printf("Receiving message %d", messagePacket.MessageID)
-				if chanResult, ok := l.chanResults[messagePacket.MessageID]; ok {
-					chanResult <- messagePacket.Packet
-				} else {
-					log.Printf("Received unexpected message %d", messagePacket.MessageID)
-					ber.PrintPacket(messagePacket.Packet)
-				}
-			case MessageFinish:
-				// Remove from message list
-				l.Debug.Printf("Finished message %d", messagePacket.MessageID)
-				close(l.chanResults[messagePacket.MessageID])
-				delete(l.chanResults, messagePacket.MessageID)
+			// Add to message list and write to network
+			l.Debug.Printf("Sending message %d", messagePacket.MessageID)
+			l.chanResults[messagePacket.MessageID] = messagePacket.Channel
+
+			buf := messagePacket.Packet.Bytes()
+			_, err := l.conn.Write(buf)
+			if err != nil {
+				l.Debug.Printf("Error Sending Message: %s", err.Error())
+				return
 			}
 		}
 	}
@@ -286,13 +229,19 @@ func (l *Conn) reader() {
 			return
 		}
 		addLDAPDescriptions(packet)
-		message := &messagePacket{
-			Op:        MessageResponse,
-			MessageID: uint64(packet.Children[0].Value.(int64)), //figure out if its really unsigned
-			Packet:    packet,
+		messageID := uint64(packet.Children[0].Value.(int64))
+
+		// TODO: thread safe
+		chanResult, ok := l.chanResults[messageID]
+		if !ok {
+			log.Printf("Received unexpected message %d", messageID)
+			ber.PrintPacket(packet)
+			continue
 		}
-		if !l.sendProcessMessage(message) {
+		select {
+		case <-l.chanClosed:
 			return
+		case chanResult <- packet:
 		}
 
 	}
