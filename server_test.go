@@ -151,7 +151,7 @@ func TestBindSimpleFailBadDn(t *testing.T) {
 		cmd := exec.Command("ldapsearch", "-H", ldapURL, "-x",
 			"-b", serverBaseDN, "-D", "cn=testoy,"+serverBaseDN, "-w", "iLike2test")
 		out, _ := cmd.CombinedOutput()
-		if string(out) != "ldap_bind: Invalid credentials (49)\n" {
+		if !strings.Contains(string(out), "ldap_bind: Invalid credentials") {
 			t.Errorf("ldapsearch succeeded - should have failed: %v", string(out))
 		}
 		done <- true

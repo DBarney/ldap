@@ -62,7 +62,7 @@ func TestDelete(t *testing.T) {
 		}
 		cmd = exec.Command("ldapdelete", "-v", "-H", ldapURL, "-x", "cn=Bob,dc=example,dc=com")
 		out, _ = cmd.CombinedOutput()
-		if strings.Contains(string(out), "Success") || !strings.Contains(string(out), "ldap_delete: Insufficient access") {
+		if !strings.Contains(string(out), "Success") || !strings.Contains(string(out), "ldap_delete: Insufficient access") {
 			t.Errorf("ldapdelete should have failed: %v", string(out))
 		}
 		done <- true

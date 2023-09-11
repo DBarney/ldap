@@ -282,7 +282,7 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 
 	case ApplicationBindRequest:
 		ldapResultCode := session.Bind(req, session.server.Binder, ctx)
-		return encodeBindResponse(messageID, ldapResultCode)
+		return encodeLDAPResponse(messageID, ApplicationBindResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationSearchRequest:
 		code := LDAPResultCode(LDAPResultSuccess)
