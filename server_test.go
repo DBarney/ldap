@@ -1,8 +1,6 @@
 package ldap
 
 import (
-	"bytes"
-	"log"
 	"net"
 	"os/exec"
 	"strings"
@@ -233,58 +231,6 @@ func TestBindPanic(t *testing.T) {
 	case <-done:
 	case <-time.After(timeout):
 		t.Errorf("ldapsearch command timed out")
-	}
-	s.Close()
-}
-
-/////////////////////////
-type testStatsWriter struct {
-	buffer *bytes.Buffer
-}
-
-func (tsw testStatsWriter) Write(buf []byte) (int, error) {
-	tsw.buffer.Write(buf)
-	return len(buf), nil
-}
-
-func TestSearchStats(t *testing.T) {
-	t.Skip()
-	w := testStatsWriter{&bytes.Buffer{}}
-	log.SetOutput(w)
-
-	done := make(chan bool)
-	s := NewServer()
-
-	r := NewRouter()
-	r.HandleSearch(searchSimple{})
-	r.HandleBind(bindAnonOK{})
-	s.Handler(r)
-	s.SetStats(true)
-	go func() {
-		if err := s.ListenAndServe(listenString); err != nil {
-			t.Errorf("s.ListenAndServe failed: %s", err.Error())
-		}
-	}()
-
-	go func() {
-		cmd := exec.Command("ldapsearch", "-H", ldapURL, "-x", "-b", "o=testers,c=test")
-		out, _ := cmd.CombinedOutput()
-		if !strings.Contains(string(out), "result: 0 Success") {
-			t.Errorf("ldapsearch failed: %v", string(out))
-		}
-		done <- true
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(timeout):
-		t.Errorf("ldapsearch command timed out")
-	}
-
-	stats := s.GetStats()
-	log.Println(stats)
-	if stats.Conns != 1 || stats.Binds != 1 {
-		t.Errorf("Stats data missing or incorrect: %v", w.buffer.String())
 	}
 	s.Close()
 }

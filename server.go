@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"sync"
 
 	ber "github.com/go-asn1-ber/asn1-ber"
 	"go.opentelemetry.io/otel"
@@ -17,7 +16,6 @@ type Server struct {
 	handler     Handler
 	Quit        chan bool
 	EnforceLDAP bool
-	Stats       *Stats
 }
 
 type Session struct {
@@ -26,14 +24,6 @@ type Session struct {
 	server      *Server
 	handler     Handler
 	enforceLDAP bool
-}
-
-type Stats struct {
-	Conns      int
-	Binds      int
-	Unbinds    int
-	Searches   int
-	statsMutex sync.Mutex
 }
 
 type ServerSearchResult struct {
@@ -49,7 +39,6 @@ func NewServer() *Server {
 	s.Quit = make(chan bool)
 
 	s.handler = NewRouter()
-	s.Stats = nil
 	return s
 }
 
@@ -73,22 +62,6 @@ func (server *Server) ListenAndServeTLS(listenString string, certFile string, ke
 		return err
 	}
 	return server.Serve(ln)
-}
-
-func (server *Server) SetStats(enable bool) {
-	if enable {
-		server.Stats = &Stats{}
-	} else {
-		server.Stats = nil
-	}
-}
-
-func (server *Server) GetStats() Stats {
-	defer func() {
-		server.Stats.statsMutex.Unlock()
-	}()
-	server.Stats.statsMutex.Lock()
-	return *server.Stats
 }
 
 func (server *Server) ListenAndServe(listenString string) error {
