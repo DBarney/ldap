@@ -195,54 +195,58 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 		}
 	}
 
+	var code LDAPResultCode
+	var tag ber.Tag
 	// dispatch the LDAP operation
 	switch req.Tag {
 	default:
 		return encodeLDAPResponse(messageID, ApplicationAddResponse, LDAPResultOperationsError, "Unsupported operation")
 
 	case ApplicationBindRequest:
-		ldapResultCode := session.Bind(req, ctx)
-		return encodeLDAPResponse(messageID, ApplicationBindResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+		code = session.Bind(req, ctx)
+		tag = ApplicationBindResponse
 
 	case ApplicationSearchRequest:
-		code := LDAPResultCode(LDAPResultSuccess)
+		code = LDAPResultCode(LDAPResultSuccess)
 		if err := session.Search(req, &controls, messageID, ctx); err != nil {
 			log.Printf("handleSearchRequest error %s", err.Error())
 			e := err.(*Error)
 			code = e.ResultCode
 		}
-		return encodeLDAPResponse(messageID, ApplicationSearchResultDone, code, LDAPResultCodeMap[code])
+		tag = ApplicationSearchResultDone
 
 	case ApplicationUnbindRequest:
 		session.boundDN = "" // anything else?
+		return nil
 	case ApplicationExtendedRequest:
-		ldapResultCode := session.Extended(req, ctx)
-		return encodeLDAPResponse(messageID, ApplicationExtendedResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+		code = session.Extended(req, ctx)
+		tag = ApplicationExtendedResponse
 
 	case ApplicationAbandonRequest:
 		session.Abandon(req, ctx)
+		return nil
 
 	case ApplicationAddRequest:
-		ldapResultCode := session.Add(req, ctx)
-		return encodeLDAPResponse(messageID, ApplicationAddResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+		code = session.Add(req, ctx)
+		tag = ApplicationAddResponse
 
 	case ApplicationModifyRequest:
-		ldapResultCode := session.Modify(req, ctx)
-		return encodeLDAPResponse(messageID, ApplicationModifyResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+		code = session.Modify(req, ctx)
+		tag = ApplicationModifyResponse
 
 	case ApplicationDelRequest:
-		ldapResultCode := session.Delete(req, ctx)
-		return encodeLDAPResponse(messageID, ApplicationDelResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+		code = session.Delete(req, ctx)
+		tag = ApplicationDelResponse
 
 	case ApplicationModifyDNRequest:
-		ldapResultCode := session.ModifyDN(req, ctx)
-		return encodeLDAPResponse(messageID, ApplicationModifyDNResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+		code = session.ModifyDN(req, ctx)
+		tag = ApplicationModifyDNResponse
 
 	case ApplicationCompareRequest:
-		ldapResultCode := session.Compare(req, ctx)
-		return encodeLDAPResponse(messageID, ApplicationCompareResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
+		code = session.Compare(req, ctx)
+		tag = ApplicationCompareResponse
 	}
-	return nil
+	return encodeLDAPResponse(messageID, tag, code, LDAPResultCodeMap[code])
 }
 
 //
@@ -256,11 +260,11 @@ func sendPacket(conn net.Conn, packet *ber.Packet) error {
 }
 
 //
-func encodeLDAPResponse(messageID uint64, responseType uint8, ldapResultCode LDAPResultCode, message string) *ber.Packet {
+func encodeLDAPResponse(messageID uint64, responseType ber.Tag, code LDAPResultCode, message string) *ber.Packet {
 	responsePacket := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Response")
 	responsePacket.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "Message ID"))
-	reponse := ber.Encode(ber.ClassApplication, ber.TypeConstructed, ber.Tag(responseType), nil, ApplicationMap[ber.Tag(responseType)])
-	reponse.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(ldapResultCode), "resultCode: "))
+	reponse := ber.Encode(ber.ClassApplication, ber.TypeConstructed, responseType, nil, ApplicationMap[ber.Tag(responseType)])
+	reponse.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagEnumerated, uint64(code), "resultCode: "))
 	reponse.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, "", "matchedDN: "))
 	reponse.AppendChild(ber.NewString(ber.ClassUniversal, ber.TypePrimitive, ber.TagOctetString, message, "errorMessage: "))
 	responsePacket.AppendChild(reponse)
