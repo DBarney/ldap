@@ -246,36 +246,3 @@ func (l *Conn) reader() {
 
 	}
 }
-
-// Use Abandon operation to perform connection keepalives
-func (l *Conn) Ping() error {
-
-	messageID := l.nextMessageID()
-
-	packet := ber.Encode(ber.ClassUniversal, ber.TypeConstructed, ber.TagSequence, nil, "LDAP Request")
-	packet.AppendChild(ber.NewInteger(ber.ClassUniversal, ber.TypePrimitive, ber.TagInteger, messageID, "MessageID"))
-	abandonRequest := ber.Encode(ber.ClassApplication, ber.TypePrimitive, ApplicationAbandonRequest, nil, "Abandon Request")
-	packet.AppendChild(abandonRequest)
-
-	if l.Debug {
-		ber.PrintPacket(packet)
-	}
-
-	channel, err := l.sendMessage(packet)
-	if err != nil {
-		return err
-	}
-	if channel == nil {
-		return NewError(ErrorNetwork, errors.New("ldap: could not send message"))
-	}
-	defer l.finishMessage(messageID)
-
-	if l.Debug {
-		if err := addLDAPDescriptions(packet); err != nil {
-			return err
-		}
-		ber.PrintPacket(packet)
-	}
-
-	return nil
-}
