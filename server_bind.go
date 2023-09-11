@@ -41,6 +41,7 @@ func (session *Session) Bind(req *ber.Packet, ctx context.Context) LDAPResultCod
 			log.Printf("BindFn Error %s", err.Error())
 			return LDAPResultOperationsError
 		}
+		session.boundDN = bindDN
 		return resultCode
 	case LDAPBindAuthSASL:
 		log.Print("SASL authentication is not supported")
