@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-func (session *Session) Add(req *ber.Packet, fn Adder, ctx context.Context) LDAPResultCode {
+func (session *Session) Add(req *ber.Packet, ctx context.Context) LDAPResultCode {
 	_, span := otel.Tracer("LDAP").Start(ctx, "Add")
 	defer span.End()
 	if len(req.Children) != 2 {
@@ -41,7 +41,7 @@ func (session *Session) Add(req *ber.Packet, fn Adder, ctx context.Context) LDAP
 		}
 		addReq.attributes = append(addReq.attributes, a)
 	}
-	resultCode, err := fn.Add(session.boundDN, addReq, session.conn)
+	resultCode, err := session.handler.Add(session.boundDN, addReq, session.conn)
 	if err != nil {
 		log.Printf("AddFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -49,11 +49,11 @@ func (session *Session) Add(req *ber.Packet, fn Adder, ctx context.Context) LDAP
 	return resultCode
 }
 
-func (session *Session) Delete(req *ber.Packet, fn Deleter, ctx context.Context) LDAPResultCode {
+func (session *Session) Delete(req *ber.Packet, ctx context.Context) LDAPResultCode {
 	_, span := otel.Tracer("LDAP").Start(ctx, "Delete")
 	defer span.End()
 	deleteDN := ber.DecodeString(req.Data.Bytes())
-	resultCode, err := fn.Delete(session.boundDN, deleteDN, session.conn)
+	resultCode, err := session.handler.Delete(session.boundDN, deleteDN, session.conn)
 	if err != nil {
 		log.Printf("DeleteFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -61,7 +61,7 @@ func (session *Session) Delete(req *ber.Packet, fn Deleter, ctx context.Context)
 	return resultCode
 }
 
-func (session *Session) Modify(req *ber.Packet, fn Modifier, ctx context.Context) LDAPResultCode {
+func (session *Session) Modify(req *ber.Packet, ctx context.Context) LDAPResultCode {
 	_, span := otel.Tracer("LDAP").Start(ctx, "Modify")
 	defer span.End()
 	if len(req.Children) != 2 {
@@ -109,7 +109,7 @@ func (session *Session) Modify(req *ber.Packet, fn Modifier, ctx context.Context
 			modReq.Replace(attr.AttrType, attr.AttrVals)
 		}
 	}
-	resultCode, err := fn.Modify(session.boundDN, modReq, session.conn)
+	resultCode, err := session.handler.Modify(session.boundDN, modReq, session.conn)
 	if err != nil {
 		log.Printf("ModifyFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -117,7 +117,7 @@ func (session *Session) Modify(req *ber.Packet, fn Modifier, ctx context.Context
 	return resultCode
 }
 
-func (session *Session) Compare(req *ber.Packet, fn Comparer, ctx context.Context) LDAPResultCode {
+func (session *Session) Compare(req *ber.Packet, ctx context.Context) LDAPResultCode {
 	_, span := otel.Tracer("LDAP").Start(ctx, "Compare")
 	defer span.End()
 	if len(req.Children) != 2 {
@@ -142,7 +142,7 @@ func (session *Session) Compare(req *ber.Packet, fn Comparer, ctx context.Contex
 		return LDAPResultProtocolError
 	}
 	compReq.ava = []AttributeValueAssertion{AttributeValueAssertion{attr, val}}
-	resultCode, err := fn.Compare(session.boundDN, compReq, session.conn)
+	resultCode, err := session.handler.Compare(session.boundDN, compReq, session.conn)
 	if err != nil {
 		log.Printf("CompareFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -150,7 +150,7 @@ func (session *Session) Compare(req *ber.Packet, fn Comparer, ctx context.Contex
 	return resultCode
 }
 
-func (session *Session) Extended(req *ber.Packet, fn Extender, ctx context.Context) LDAPResultCode {
+func (session *Session) Extended(req *ber.Packet, ctx context.Context) LDAPResultCode {
 	_, span := otel.Tracer("LDAP").Start(ctx, "Extend")
 	defer span.End()
 	if len(req.Children) != 1 && len(req.Children) != 2 {
@@ -162,7 +162,7 @@ func (session *Session) Extended(req *ber.Packet, fn Extender, ctx context.Conte
 		val = ber.DecodeString(req.Children[1].Data.Bytes())
 	}
 	extReq := ExtendedRequest{name, val}
-	resultCode, err := fn.Extended(session.boundDN, extReq, session.conn)
+	resultCode, err := session.handler.Extended(session.boundDN, extReq, session.conn)
 	if err != nil {
 		log.Printf("ExtendedFn Error %s", err.Error())
 		return LDAPResultOperationsError
@@ -170,14 +170,14 @@ func (session *Session) Extended(req *ber.Packet, fn Extender, ctx context.Conte
 	return resultCode
 }
 
-func (session *Session) Abandon(req *ber.Packet, fn Abandoner, ctx context.Context) error {
+func (session *Session) Abandon(req *ber.Packet, ctx context.Context) error {
 	_, span := otel.Tracer("LDAP").Start(ctx, "Abandon")
 	defer span.End()
-	err := fn.Abandon(session.boundDN, session.conn)
+	err := session.handler.Abandon(session.boundDN, session.conn)
 	return err
 }
 
-func (session *Session) ModifyDN(req *ber.Packet, fn ModifyDNr, ctx context.Context) LDAPResultCode {
+func (session *Session) ModifyDN(req *ber.Packet, ctx context.Context) LDAPResultCode {
 	_, span := otel.Tracer("LDAP").Start(ctx, "ModifyDN")
 	defer span.End()
 	if len(req.Children) != 3 && len(req.Children) != 4 {
@@ -203,7 +203,7 @@ func (session *Session) ModifyDN(req *ber.Packet, fn ModifyDNr, ctx context.Cont
 			return LDAPResultProtocolError
 		}
 	}
-	resultCode, err := fn.ModifyDN(session.boundDN, mdnReq, session.conn)
+	resultCode, err := session.handler.ModifyDN(session.boundDN, mdnReq, session.conn)
 	if err != nil {
 		log.Printf("ModifyDN Error %s", err.Error())
 		return LDAPResultOperationsError

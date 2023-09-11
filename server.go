@@ -199,7 +199,7 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 		return encodeLDAPResponse(messageID, ApplicationAddResponse, LDAPResultOperationsError, "Unsupported operation")
 
 	case ApplicationBindRequest:
-		ldapResultCode := session.Bind(req, session.handler, ctx)
+		ldapResultCode := session.Bind(req, ctx)
 		return encodeLDAPResponse(messageID, ApplicationBindResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationSearchRequest:
@@ -214,30 +214,30 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 	case ApplicationUnbindRequest:
 		session.boundDN = "" // anything else?
 	case ApplicationExtendedRequest:
-		ldapResultCode := session.Extended(req, session.handler, ctx)
+		ldapResultCode := session.Extended(req, ctx)
 		return encodeLDAPResponse(messageID, ApplicationExtendedResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationAbandonRequest:
-		session.Abandon(req, session.handler, ctx)
+		session.Abandon(req, ctx)
 
 	case ApplicationAddRequest:
-		ldapResultCode := session.Add(req, session.handler, ctx)
+		ldapResultCode := session.Add(req, ctx)
 		return encodeLDAPResponse(messageID, ApplicationAddResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationModifyRequest:
-		ldapResultCode := session.Modify(req, session.handler, ctx)
+		ldapResultCode := session.Modify(req, ctx)
 		return encodeLDAPResponse(messageID, ApplicationModifyResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationDelRequest:
-		ldapResultCode := session.Delete(req, session.handler, ctx)
+		ldapResultCode := session.Delete(req, ctx)
 		return encodeLDAPResponse(messageID, ApplicationDelResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationModifyDNRequest:
-		ldapResultCode := session.ModifyDN(req, session.handler, ctx)
+		ldapResultCode := session.ModifyDN(req, ctx)
 		return encodeLDAPResponse(messageID, ApplicationModifyDNResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 
 	case ApplicationCompareRequest:
-		ldapResultCode := session.Compare(req, session.handler, ctx)
+		ldapResultCode := session.Compare(req, ctx)
 		return encodeLDAPResponse(messageID, ApplicationCompareResponse, ldapResultCode, LDAPResultCodeMap[ldapResultCode])
 	}
 	return nil
