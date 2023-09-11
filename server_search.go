@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-func (session *Session) Search(req *ber.Packet, controls *[]Control, messageID uint64, server *Server, ctx context.Context) error {
+func (session *Session) Search(req *ber.Packet, controls *[]Control, messageID uint64, ctx context.Context) error {
 	_, span := otel.Tracer("LDAP").Start(ctx, "Search")
 	defer span.End()
 	searchReq, err := parseSearchRequest(session.boundDN, req, controls)
@@ -27,7 +27,7 @@ func (session *Session) Search(req *ber.Packet, controls *[]Control, messageID u
 		return NewError(searchResp.ResultCode, err)
 	}
 
-	if server.EnforceLDAP {
+	if session.enforceLDAP {
 		if searchReq.DerefAliases != NeverDerefAliases { // [-a {never|always|search|find}
 			// TODO: Server DerefAliases not supported: RFC4511 4.5.1.3
 		}
@@ -39,7 +39,7 @@ func (session *Session) Search(req *ber.Packet, controls *[]Control, messageID u
 	i := 0
 	searchReqBaseDNLower := strings.ToLower(searchReq.BaseDN)
 	for _, entry := range searchResp.Entries {
-		if server.EnforceLDAP {
+		if session.enforceLDAP {
 			// filter
 			keep, resultCode := ServerApplyFilter(filterPacket, entry)
 			if resultCode != LDAPResultSuccess {

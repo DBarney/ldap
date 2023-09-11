@@ -21,10 +21,11 @@ type Server struct {
 }
 
 type Session struct {
-	boundDN string
-	conn    net.Conn
-	server  *Server
-	handler Handler
+	boundDN     string
+	conn        net.Conn
+	server      *Server
+	handler     Handler
+	enforceLDAP bool
 }
 
 type Stats struct {
@@ -142,10 +143,11 @@ func (server *Server) handleConnection(conn net.Conn, ctx context.Context) {
 	defer span.End()
 
 	session := &Session{
-		conn:    conn,
-		server:  server,
-		handler: server.handler,
-		boundDN: "",
+		conn:        conn,
+		server:      server,
+		handler:     server.handler,
+		boundDN:     "",
+		enforceLDAP: server.EnforceLDAP,
 	}
 
 	for {
@@ -204,7 +206,7 @@ func (session *Session) handleCommand(packet *ber.Packet, ctx context.Context) (
 
 	case ApplicationSearchRequest:
 		code := LDAPResultCode(LDAPResultSuccess)
-		if err := session.Search(req, &controls, messageID, session.server, ctx); err != nil {
+		if err := session.Search(req, &controls, messageID, ctx); err != nil {
 			log.Printf("handleSearchRequest error %s", err.Error())
 			e := err.(*Error)
 			code = e.ResultCode
