@@ -5,8 +5,24 @@ import (
 	"testing"
 )
 
-var ldapServer = "ldap.itd.umich.edu"
-var ldapPort = uint16(389)
+func setupSuite(t *testing.T) func() {
+	s := NewServer()
+	s.EnforceLDAP = true
+	r := NewRouter()
+	r.HandleBind(bindAnonOK{})
+	s.Handler(r)
+	go func() {
+		if err := s.ListenAndServe(listenString); err != nil {
+			t.Errorf("s.ListenAndServe failed: %s", err.Error())
+		}
+	}()
+	s.waitForReady()
+	// Return a function to teardown the test
+	return func() {
+		s.Close()
+	}
+}
+
 var baseDN = "dc=umich,dc=edu"
 var filter = []string{
 	"(cn=cis-fac)",
@@ -17,8 +33,9 @@ var attributes = []string{
 	"description"}
 
 func TestClose(t *testing.T) {
+	defer setupSuite(t)()
 	fmt.Printf("TestConnect: starting...\n")
-	l, err := Dial("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort))
+	l, err := Dial("tcp", listenString)
 	if err != nil {
 		t.Errorf(err.Error())
 	}
@@ -27,8 +44,9 @@ func TestClose(t *testing.T) {
 }
 
 func TestConnect(t *testing.T) {
+	defer setupSuite(t)()
 	fmt.Printf("TestConnect: starting...\n")
-	l, err := Dial("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort))
+	l, err := Dial("tcp", listenString)
 	if err != nil {
 		t.Errorf(err.Error())
 		return
@@ -38,8 +56,9 @@ func TestConnect(t *testing.T) {
 }
 
 func TestSearch(t *testing.T) {
+	defer setupSuite(t)()
 	fmt.Printf("TestSearch: starting...\n")
-	l, err := Dial("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort))
+	l, err := Dial("tcp", listenString)
 	if err != nil {
 		t.Errorf(err.Error())
 		return
@@ -63,8 +82,9 @@ func TestSearch(t *testing.T) {
 }
 
 func TestSearchWithPaging(t *testing.T) {
+	defer setupSuite(t)()
 	fmt.Printf("TestSearchWithPaging: starting...\n")
-	l, err := Dial("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort))
+	l, err := Dial("tcp", listenString)
 	if err != nil {
 		t.Errorf(err.Error())
 		return
@@ -109,8 +129,9 @@ func testMultiGoroutineSearch(t *testing.T, l *Conn, results chan *SearchResult,
 }
 
 func TestMultiGoroutineSearch(t *testing.T) {
+	defer setupSuite(t)()
 	fmt.Printf("TestMultiGoroutineSearch: starting...\n")
-	l, err := Dial("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort))
+	l, err := Dial("tcp", listenString)
 	if err != nil {
 		t.Errorf(err.Error())
 		return

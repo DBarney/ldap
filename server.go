@@ -24,6 +24,7 @@ type ServerSearchResult struct {
 type Server struct {
 	handler     Handler
 	quit        chan bool
+	ready       chan bool
 	EnforceLDAP bool
 }
 
@@ -39,6 +40,7 @@ type Session struct {
 func NewServer() *Server {
 	s := new(Server)
 	s.quit = make(chan bool)
+	s.ready = make(chan bool)
 
 	s.handler = NewRouter()
 	return s
@@ -46,6 +48,10 @@ func NewServer() *Server {
 
 func (server *Server) Handler(h Handler) {
 	server.handler = h
+}
+
+func (server *Server) waitForReady() {
+	<-server.ready
 }
 
 func (server *Server) ListenAndServeTLS(listenString string, certFile string, keyFile string) error {
@@ -76,6 +82,7 @@ func (server *Server) Serve(ln net.Listener) error {
 	conChan := make(chan net.Conn)
 	errChan := make(chan error)
 	go func() {
+		close(server.ready)
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
