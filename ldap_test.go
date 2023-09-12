@@ -16,6 +16,16 @@ var attributes = []string{
 	"cn",
 	"description"}
 
+func TestClose(t *testing.T) {
+	fmt.Printf("TestConnect: starting...\n")
+	l, err := Dial("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort))
+	if err != nil {
+		t.Errorf(err.Error())
+	}
+	l.Close()
+	l.Close()
+}
+
 func TestConnect(t *testing.T) {
 	fmt.Printf("TestConnect: starting...\n")
 	l, err := Dial("tcp", fmt.Sprintf("%s:%d", ldapServer, ldapPort))

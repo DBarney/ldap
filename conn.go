@@ -188,7 +188,6 @@ func (l *Conn) processMessages() {
 			l.Debug.Printf("Closing channel for MessageID %d", messageID)
 			close(channel)
 		}
-		close(l.chanDone)
 	}()
 
 	for {
