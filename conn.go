@@ -163,8 +163,7 @@ func (l *Conn) sendMessage(packet *ber.Packet) (chan *ber.Packet, error) {
 		Packet:    packet,
 		Channel:   out,
 	}
-	l.sendProcessMessage(message)
-	return out, nil
+	return out, l.sendProcessMessage(message)
 }
 
 func (l *Conn) finishMessage(messageID uint64) {

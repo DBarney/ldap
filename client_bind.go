@@ -33,9 +33,6 @@ func (l *Conn) Bind(userName, password string) error {
 	if err != nil {
 		return err
 	}
-	if channel == nil {
-		return NewError(ErrorNetwork, errors.New("ldap: could not send message"))
-	}
 	defer l.finishMessage(messageID)
 
 	packet = <-channel
