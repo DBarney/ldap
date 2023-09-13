@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/nmcclain/asn1-ber"
+	ber "github.com/go-asn1-ber/asn1-ber"
 )
 
 type Binder interface {
@@ -380,7 +380,7 @@ func routeFunc(dn string, funcNames []string) string {
 	dnMatch := "," + strings.ToLower(dn)
 	var weight int
 	for _, fn := range funcNames {
-		if strings.HasSuffix(dnMatch, "," + fn) {
+		if strings.HasSuffix(dnMatch, ","+fn) {
 			//  empty string as 0, no-comma string 1 , etc
 			if fn == "" {
 				weight = 0

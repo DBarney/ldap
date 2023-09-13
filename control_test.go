@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"gopkg.in/asn1-ber.v1"
+	ber "github.com/nmcclain/asn1-ber"
 )
 
 func TestControlPaging(t *testing.T) {

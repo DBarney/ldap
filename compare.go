@@ -27,7 +27,7 @@ import (
 	"errors"
 	"fmt"
 
-	"gopkg.in/asn1-ber.v1"
+	ber "github.com/go-asn1-ber/asn1-ber"
 )
 
 // Compare checks to see if the attribute of the dn matches value. Returns true if it does otherwise
