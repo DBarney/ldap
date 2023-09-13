@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 package main
@@ -23,8 +24,10 @@ func main() {
 
 	// register Bind and Search function handlers
 	handler := ldapHandler{}
-	s.BindFunc("", handler)
-	s.SearchFunc("", handler)
+	r := ldap.NewRouter()
+	r.Bind(handler)
+	r.Search(handler)
+	s.Handler(r)
 
 	// start the server
 	listen := "localhost:3389"
